@@ -4,6 +4,8 @@ This repository uses AGENTS skills for TileLang NPUIR development.
 
 ## Scope
 
+For conductor tasks, resolve hardware and toolchain with `python3 .agents/tools/statectl.py platform --hardware <model> --toolchain <toolchain>` or use `--task-dir <task>` to read the saved selection and follow its rules and skill references. The implementation guidance below applies to the NPUIR backend.
+
 The skills in .agents/skills are designed for target="npuir" workflows.
 They prioritize v-prefix vector APIs such as vadd, vmul, vexp, vcast, vbrc.
 Legacy npuir_xxx APIs remain valid as compatibility aliases.

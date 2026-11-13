@@ -44,9 +44,20 @@ import re
 import sys
 import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_lint  # noqa: E402
+from platform_context import (  # noqa: E402
+    PlatformError,
+    add_platform_args,
+    command_platform,
+    read_json,
+    resolve_platform,
+    task_state_path,
+    using_platform,
+    get_platform,
+)
 
 STATE_FILE = ".stage_state.json"
 MIGRATION_STATE_FILE = ".migration_state.json"
@@ -239,6 +250,7 @@ class Ctx:
         if not isinstance(raw, dict):
             errors.append(err("E-PARSE", "状态文件顶层必须是 JSON 对象"))
             return False
+        resolve_platform(state=raw)
         self.state = gate_lint.state_backfill(raw) if backfill else raw
         return True
 
@@ -333,6 +345,27 @@ def run_gate(stage: int, ctx: Ctx, meta_path: str | None, migration_dir: str | N
 
     `errors` are input problems (missing --meta etc.), not gate failures.
     """
+    state = ctx.state or {}
+    if stage in (0, 5):
+        aggregate = Path(migration_dir or ctx.op_dir) / MIGRATION_STATE_FILE
+        if aggregate.is_file():
+            migration_state = read_json(aggregate)
+            if (
+                state
+                and resolve_platform(state=state).selection
+                != resolve_platform(state=migration_state).selection
+            ):
+                raise PlatformError(
+                    "stage and migration aggregate use different platforms"
+                )
+            state = migration_state
+            migration_dir = str(aggregate.parent)
+    platform = resolve_platform(state=state) if state else get_platform()
+    with using_platform(platform):
+        return run_gate_checks(stage, ctx, meta_path, migration_dir)
+
+
+def run_gate_checks(stage, ctx, meta_path, migration_dir):
     failures, warnings, errors = [], [], []
     state = ctx.state or {}
     migration = state.get("scenario") == "migration"
@@ -353,7 +386,7 @@ def run_gate(stage: int, ctx: Ctx, meta_path: str | None, migration_dir: str | N
                 err("E-GATE-INPUT", "gate 0 需要 --meta（.migration_meta.json 路径）")
             )
         else:
-            f, w = gate_lint.meta_lint(meta, ctx.repo_root)
+            f, w = gate_lint.meta_lint(os.path.join(ctx.repo_root, meta), ctx.repo_root)
             failures, warnings = failures + f, warnings + w
     elif stage == 1:
         f, w = gate_lint.design_lint(paths["design"][1], migration, ctx.repo_root)
@@ -386,6 +419,8 @@ def run_gate(stage: int, ctx: Ctx, meta_path: str | None, migration_dir: str | N
                         mstate = json.load(fh)
                 except (json.JSONDecodeError, OSError):
                     mstate = None
+        if meta_path:
+            meta_path = os.path.join(ctx.repo_root, meta_path)
         if mstate is None and meta_path and os.path.exists(meta_path):
             try:
                 with open(meta_path, encoding="utf-8") as fh:
@@ -450,6 +485,51 @@ def scenario_stage_plan(scenario: str, migration_mode: str | None, errors: list)
     return []
 
 
+def init_platform(args, directory):
+    default_dir = directory if args.command == "migration" else Path(directory).parent
+    path = (
+        task_state_path(args.task_dir, exact=True)
+        if args.task_dir
+        else task_state_path(default_dir)
+    )
+    if args.command == "init" and args.migration_mode == "harness":
+        aggregate = task_state_path(
+            Path(directory).parent, state_files=(MIGRATION_STATE_FILE,)
+        )
+        if aggregate is not None:
+            parent = resolve_platform(
+                args.hardware, args.toolchain, state=read_json(aggregate)
+            )
+            if (
+                path
+                and path != aggregate
+                and resolve_platform(state=read_json(path)).evidence()
+                != parent.evidence()
+            ):
+                raise PlatformError(
+                    "initialization platform differs from the migration aggregate"
+                )
+            if not args.task_dir or path is not None:
+                path = aggregate
+    if args.task_dir and path is None:
+        raise PlatformError(f"no parent task state found at {args.task_dir}")
+    if path is not None:
+        platform = resolve_platform(
+            args.hardware, args.toolchain, state=read_json(path)
+        )
+        if args.legacy_platform and platform.hardware is not None:
+            raise PlatformError("--legacy-platform conflicts with the parent task")
+        return platform.verified() if args.probe else platform
+    if args.legacy_platform:
+        if args.hardware or args.toolchain or args.probe:
+            raise PlatformError(
+                "--legacy-platform cannot be combined with a platform selection"
+            )
+        return resolve_platform(state={})
+    platform = resolve_platform(args.hardware, args.toolchain, detect=True)
+    return platform.verified() if args.probe or not args.hardware else platform
+
+
 def cmd_init(args) -> int:
     ctx = Ctx(args)
     errors: list = []
@@ -472,12 +552,15 @@ def cmd_init(args) -> int:
     if errors:
         return emit({"action": "init", "errors": errors}, 1)
 
+    platform = init_platform(args, ctx.op_dir)
     os.makedirs(ctx.op_dir, exist_ok=True)
     base = rel_posix(ctx.repo_root, ctx.op_dir)
     op = args.op
     ts_compact = re.sub(r"[-:]", "", now_iso())
     state = gate_lint.state_backfill(
         {
+            **platform.selection,
+            **({"platform_runtime": platform.runtime} if platform.runtime else {}),
             "task_id": f"{args.project}-{op}-{ts_compact}",
             "project_name": args.project,
             "operator_name": op,
@@ -638,6 +721,9 @@ def cmd_start(args) -> int:
     state["stage_status"][str(n)] = "in_progress"
     state["phase"] = STAGE_PHASE[n]
     state["current_stage"] = n
+    platform = resolve_platform(state=state)
+    if n in (3, 4, 5) and platform.hardware is not None:
+        state["platform_runtime"] = platform.probe()
     ctx.write()
     budget = budget_watermark(state, ctx.op_dir, now_iso())
     ctx.timeline(
@@ -959,6 +1045,8 @@ def cmd_fail(args) -> int:
 
 
 def cmd_gate(args) -> int:
+    if args.stage in (0, 5) and not args.dir and args.migration_dir:
+        args.dir = args.migration_dir
     ctx = Ctx(args)
     errors: list = []
     # gate 0/5 可无 stage 状态文件（op 级 / 集成级）；1-4 需要状态文件提供路径
@@ -966,9 +1054,15 @@ def cmd_gate(args) -> int:
         ctx.state = {}
     elif not ctx.load(errors):
         return emit({"action": "gate", "stage": args.stage, "errors": errors}, 1)
-    failures, warnings, gate_errors = run_gate(
-        args.stage, ctx, args.meta, args.migration_dir
+    platform = (
+        command_platform(args, args.migration_dir or ctx.op_dir)
+        if args.hardware or args.toolchain or args.task_dir
+        else resolve_platform(state=ctx.state)
     )
+    with using_platform(platform):
+        failures, warnings, gate_errors = run_gate(
+            args.stage, ctx, args.meta, args.migration_dir
+        )
     if gate_errors:
         return emit(
             {**gate_payload(args.stage, failures, warnings), "errors": gate_errors}, 1
@@ -1078,6 +1172,7 @@ def cmd_repair(args) -> int:
             1,
         )
 
+    resolve_platform(state=raw)
     before_keys = set(raw.keys())
     state = gate_lint.state_backfill(raw)
     schema_failures, _schema_warnings = gate_lint.state_schema_lint(
@@ -1384,11 +1479,14 @@ def cmd_migration_init(args) -> int:
             },
             1,
         )
+    platform = init_platform(args, ctx.op_dir)
     os.makedirs(ctx.op_dir, exist_ok=True)
     funcs = {}
     for f in args.functions:
         funcs[f] = {"stage_state": None, "status": "pending"}
     state = {
+        **platform.selection,
+        **({"platform_runtime": platform.runtime} if platform.runtime else {}),
         "op_name": args.op_slug,
         "op_slug": args.op_slug,
         "family": args.family,
@@ -1482,6 +1580,9 @@ def cmd_migration_phase(args) -> int:
             )
         )
         return emit({"action": "migration-phase", "errors": errors}, 1)
+    platform = resolve_platform(state=state)
+    if target == "INTEGRATE" and platform.hardware is not None:
+        state["platform_runtime"] = platform.probe()
     state["phase"] = target
     if target == "FAILED":
         state["failure_reason"] = args.reason
@@ -1548,6 +1649,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
+    sp = sub.add_parser("platform", help="输出当前流程的平台配置和规则入口")
+    add_platform_args(sp)
+    sp.add_argument(
+        "--probe", action="store_true", help="validate active device and toolchain"
+    )
+    sp.add_argument(
+        "--probe-cores",
+        action="store_true",
+        help="legacy core query or selected platform probe",
+    )
+    sp.set_defaults(func=cmd_platform)
+
+    sp = sub.add_parser("migration-mode", help="识别迁移源工程的集成模式")
+    add_platform_args(sp)
+    sp.add_argument("--source-repo", required=True)
+    sp.add_argument("--op", required=True)
+    sp.set_defaults(func=cmd_migration_mode)
+
     def add_dir(sp, required=True):
         sp.add_argument(
             "--dir", required=required, help="算子目录（含 .stage_state.json）"
@@ -1566,6 +1685,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--stage-plan", default=None, help="覆盖默认 plan（如 0,1,2,3,5）")
     sp.add_argument("--design-path", default=None)
     sp.add_argument("--kernel-path", default=None, help="optimize 场景指向既有 kernel")
+    add_platform_args(sp)
+    sp.add_argument(
+        "--probe",
+        action="store_true",
+        help="record active hardware and toolchain at initialization",
+    )
+    sp.add_argument(
+        "--legacy-platform",
+        action="store_true",
+        help="create a compatibility fixture or import an old task",
+    )
     sp.set_defaults(func=cmd_init)
 
     sp = sub.add_parser("start", help="start_stage(N)：校验转换合法性后置 in_progress")
@@ -1606,6 +1736,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("stage", type=int, choices=range(6))
     sp.add_argument("--meta", default=None)
     sp.add_argument("--migration-dir", default=None)
+    add_platform_args(sp)
     sp.set_defaults(func=cmd_gate)
 
     sp = sub.add_parser("snapshot", help="对现存工件记录 SHA256 快照")
@@ -1681,6 +1812,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--meta-path", required=True)
     sp.add_argument("--functions", nargs="+", required=True)
     sp.add_argument("--phase", default="DEV_LOOP", choices=["SCAFFOLD", "DEV_LOOP"])
+    add_platform_args(sp)
+    sp.add_argument(
+        "--probe",
+        action="store_true",
+        help="record active hardware and toolchain at initialization",
+    )
+    sp.add_argument(
+        "--legacy-platform",
+        action="store_true",
+        help="create a compatibility fixture or import an old task",
+    )
     sp.set_defaults(func=cmd_migration_init)
 
     sp = msub.add_parser("func", help="更新函数状态")
@@ -1720,12 +1862,43 @@ def cmd_migration_show(args) -> int:
     return emit({"action": "migration-show", "state": ctx.state}, 0)
 
 
+def cmd_platform(args) -> int:
+    context = command_platform(args)
+    if args.probe and not (args.task_dir or args.hardware or args.toolchain):
+        context = resolve_platform(detect=True)
+    platform = context.prompt()
+    if args.probe or args.probe_cores:
+        try:
+            result = context.probe()
+        except (ImportError, OSError, RuntimeError) as exc:
+            raise PlatformError(str(exc)) from exc
+        if context.hardware is None:
+            platform.update(result)
+        else:
+            platform["runtime"] = result
+            platform["cost_measurements"] = context.measurements(
+                result["toolchain_stamp"]["raw"]
+            )
+    return emit({"action": "platform", "platform": platform}, 0)
+
+
+def cmd_migration_mode(args) -> int:
+    context = command_platform(args)
+    mode = context.adapter.migration_mode(args.source_repo, args.op)
+    return emit({"action": "migration-mode", "migration_mode": mode}, 0)
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "func", None) is None:
         parser.error("missing command")
-    return args.func(args)
+    try:
+        return args.func(args)
+    except PlatformError as exc:
+        return emit(
+            {"action": args.command, "errors": [err("E-PLATFORM", str(exc))]}, 1
+        )
 
 
 if __name__ == "__main__":

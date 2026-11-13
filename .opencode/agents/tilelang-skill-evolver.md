@@ -52,6 +52,7 @@ skills:
 ## 执行清单
 
 - [ ] 接收 conductor 传入的 mode 与工件清单。
+- [ ] 从任务平台配置 `knowledge.patterns` 定位 `pattern-library/` 的读取、复现与回写目录。
 - [ ] distill：按 skill Phase 0 读取任务工件 + pattern-library + queue 现状。
 - [ ] distill：Phase 1 按信号→价值点映射提取候选（失败任务重点蒸馏根因链）。
 - [ ] distill：Phase 2 分类（D/P/R/C）+ 查重 + 冲突消解预判。

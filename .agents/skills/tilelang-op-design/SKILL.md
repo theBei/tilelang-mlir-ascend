@@ -40,7 +40,7 @@ description: "根据算子需求生成 TileLang-NPUIR 算子设计文档（DESIG
 
 **迁移算子时必须提供原算子路径和输出形状**，否则无法证明迁移正确性。Golden 实现一致性要求详见 [tilelang-op-develop SKILL.md](../tilelang-op-develop/SKILL.md)。
 
-> **迁移任务的字段来源**：迁移场景下，数学公式 / 输入规格 / 输出规格**不向用户提问**，由本 skill 在 Phase M0 解读源算子代码后自行得出（与 conductor「迁移执行规则」第 4 条一致）；编程模式默认 `developer`（用户显式指定时以用户为准）。
+> **迁移任务的字段来源**：迁移场景下，数学公式 / 输入规格 / 输出规格**不向用户提问**，由本 skill 在 Phase M0 解读源算子代码后自行得出（与 conductor「迁移执行规则」第 4 条一致）；编程模式采用平台的 `programming_modes.migration_default`（用户显式指定时以用户为准）。
 
 **提问规则（必须严格遵守）**：
 1. **优先使用调用方传入的字段**：若调用方（如 `@tilelang-op-conductor` 通过 designer 传入 `op_requirements` 结构）已经提供了字段值，**全部跳过提问**，直接进入技术约束检测和 DESIGN.md 生成
@@ -119,7 +119,7 @@ references 与 templates 按**任务类型与调研深度条件加载**，禁止
    - **R1 等价化简公式**：有没有数学等价（或容差内等价）的化简公式 / 结构重排？对照 [algorithm-candidates.md](references/algorithm-candidates.md)（R1/R2 参考表本体）命中行 + 恒等变形自查 + examples/pattern-library 同类实现所用公式；候选表含基线，每候选一行等价性初判与收益方向（正式等价论证与收益量化在 §1.6.1 完成，不重复）。
    - **R2 在线算法**：有没有单遍 / 流式（online）变体？查参考表 + 迁移任务查 §0.4（源算法已用 online 手段是直接证据）+ 结构判据（可分解为 running 统计量的算子原则上存在在线变体）；收益口径 = 扫描遍数、中间缓冲、UB 驻留可行性。结论必须是明确的「有」（纳入对比）或「无」（写结构依据）。
    - **R3 算法复杂度**：候选间四口径量化对比——FLOPs / 访存 Bytes / 数据扫描遍数 / 中间缓冲峰值（附加：可并行度、跨核归并代价）；基线候选必须在表中；口径写清含什么不含什么。带宽受限算子上访存/遍数是主导项，不得只比 FLOPs。
-   - **R4 硬件亲和性**：逐候选对照检查清单——计算单元匹配（Cube MAC 密集 / Vector 逐元素规约）、片上容量（UB 192KB / L1 512KB / L0C 128KB）、对齐整除（尾轴 32B / 分形 ≥16 / 向量宽度）、静态边界、流水可融合性（T.Pipelined / CV 融合）、跨核结构；**负向淘汰与弃选论证证据规则同口径**（附 docs/testing/examples 佐证或显式「未文档化假设 + 估算依据」，代价类论断先查 pattern-library）。**定量 roofline（D-2）**：容量/带宽淘汰与候选排序须引用 `tilelang-op-optimize` skill [pattern-library/constants.md](../tilelang-op-optimize/references/pattern-library/constants.md) 的实测常数条目（含版本戳），并按 [hardware-cost-model.md](../_shared/standards/hardware-cost-model.md) §2 公式计算**估算下界 = max(流量项, 发射项, 容量项)**，以「设计期估算」行落入 §1.6.0 末尾（轻量调研算子流量项必算）；常数未覆盖的量显式标注「未实测假设 + 估算依据」。
+   - **R4 硬件亲和性**：逐候选对照检查清单——计算单元匹配（Cube MAC 密集 / Vector 逐元素规约）、片上容量（读取任务平台配置中的设计预算，缺少核验容量时列出用量和缺失项）、对齐整除（按平台规则）、静态边界、流水可融合性（T.Pipelined / CV 融合）、跨核结构；**负向淘汰与弃选论证证据规则同口径**（附 docs/testing/examples 佐证或显式「未文档化假设 + 估算依据」，代价类论断先查 pattern-library）。**定量 roofline（D-2）**：新任务先按任务平台的组合测量筛选适用证据；容量/带宽淘汰与候选排序须引用 `tilelang-op-optimize` skill [pattern-library/constants.md](../tilelang-op-optimize/references/pattern-library/constants.md) 的实测常数条目（含版本戳），并按 [hardware-cost-model.md](../_shared/standards/hardware-cost-model.md) §2 公式计算**估算下界 = max(流量项, 发射项, 容量项)**，以「设计期估算」行落入 §1.6.0 末尾（轻量调研算子流量项必算）；常数未覆盖的量显式标注「未实测假设 + 估算依据」。
 3. **调研深度分级**：单步逐元素 / 纯搬运类（Phase 1 / M0 判定）可轻量调研（四问各一行结论 + 依据）；规约 / 统计 / 窗口 / 矩阵 / 多步 / 融合类必须完整调研（R1 候选表 + R3 对比表 + R4 逐候选评估）。
 4. **产出与下游约束**：
    - 调研结论落入 `DESIGN.md` **§1.6.0**：选定算法族 + 关键依据 + 与基线的结构差异；「无更优替代」必须写明调研范围（查过的参考表条目 / examples / pattern-library / 结构分析），禁止空白；
@@ -152,7 +152,7 @@ references 与 templates 按**任务类型与调研深度条件加载**，禁止
      - 融合（如 flash attention = GEMM + softmax + GEMM）→ 核间协作、流水线
    - **动态 shape 判定**：是否存在运行时才确定的维度
 4. **非整除场景预判**：检查输入 shape 是否可能不被 block size 整除。GEMM 类算子的 `M // block_M` 和 `N // block_N` 在 `M < block_M` 或 `N < block_M` 时产生零 block 或不完整 tile，必须在设计中明确处理策略（host 侧 zero-padding + crop，或 Kernel 内动态 block size）
-5. **分核策略预判（物理核数适配）**⭐：先实际查询目标设备物理核数（`NPUUtils.get().get_aicore_num()` 实查；查询失败即无 NPU 环境时明确报告环境异常、不得猜测数值），再按 block 初步取值计算逻辑核数 `ceil(M/block_M) × ceil(N/block_N)` 并与物理核数比较，按标准文件 §1 要素③ 做规模判定与分核方案三选一（无需适配依据 / 中等规模对齐物理核整数倍 / 极大规模核内 `T.serial` 串行且循环边界静态）。**权威标准文本**：`.agents/skills/_shared/standards/core-split-strategy.md`（Read 后按 §1 三要素表与 §2.1 设计要求执行；依据 docs/开发指南.md §3.3）。
+5. **分核策略预判（物理核数适配）**⭐：先实际查询目标设备物理核数（按平台规则实查并记录；查询失败时明确报告环境异常、不得猜测数值），再按 block 初步取值计算逻辑核数 `ceil(M/block_M) × ceil(N/block_N)` 并与物理核数比较，按标准文件 §1 要素③ 做规模判定与分核方案三选一（无需适配依据 / 中等规模对齐物理核整数倍 / 极大规模核内 `T.serial` 串行且循环边界静态）。**权威标准文本**：`.agents/skills/_shared/standards/core-split-strategy.md`（Read 后按 §1 三要素表与 §2.1 设计要求执行；依据 docs/开发指南.md §3.3）。
 
 ### Phase 2：算法级优化设计 ⭐（所有任务必执行）
 

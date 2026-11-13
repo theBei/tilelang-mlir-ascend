@@ -32,29 +32,43 @@ import subprocess
 import sys
 import time
 
+from pathlib import Path
+
+from platform_context import add_platform_args, get_platform, run_with_platform
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
-REPRO_DIR = os.path.join(
-    REPO_ROOT,
-    ".agents",
-    "skills",
-    "tilelang-op-optimize",
-    "references",
-    "pattern-library",
-    "repro",
-)
+
+
+def repro_dir():
+    return os.path.join(
+        REPO_ROOT, get_platform().toolchain["knowledge"]["patterns"], "repro"
+    )
+
+
 STALE_CHECK = os.path.join(REPO_ROOT, ".agents", "tools", "kb_stale_check.py")
 DEFAULT_TIMEOUT = 900
 
 
 def discover() -> list:
-    return sorted(glob.glob(os.path.join(REPRO_DIR, "*.py")))
+    return sorted(glob.glob(os.path.join(repro_dir(), "*.py")))
 
 
 def stale_ids() -> set:
     """Entry ids listed as stale by kb_stale_check (JSON output)."""
+    platform = get_platform()
+    command = [sys.executable, STALE_CHECK, "--json"]
+    if platform.hardware is not None:
+        command += [
+            "--hardware",
+            platform.selection["hardware_id"],
+            "--toolchain",
+            platform.selection["toolchain_id"],
+            "--stamp",
+            platform.runtime["toolchain_stamp"]["raw"],
+        ]
     try:
         proc = subprocess.run(
-            [sys.executable, STALE_CHECK, "--json"],
+            command,
             capture_output=True,
             text=True,
             timeout=120,
@@ -107,7 +121,7 @@ def run_one(path: str, timeout: int) -> dict:
     try:
         proc = subprocess.run(
             [sys.executable, os.path.basename(path)],
-            cwd=REPRO_DIR,
+            cwd=repro_dir(),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -144,7 +158,12 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--list", action="store_true")
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd(), verify=not args.list)
+
+
+def run(args) -> int:
 
     files = discover()
     if args.list:
@@ -159,6 +178,7 @@ def main() -> int:
     results = [run_one(f, args.timeout) for f in chosen]
     passed = sum(1 for r in results if r["status"] == "PASS")
     summary = {
+        **get_platform().evidence(),
         "filter": args.filter,
         "executed": len(results),
         "passed": passed,

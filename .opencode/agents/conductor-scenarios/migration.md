@@ -12,7 +12,7 @@ disable: true
 2. `@tilelang.jit()` 装饰的函数（TileLang 内核函数）声明在迁移前后保持不变。
 3. `@T.prim_func()` 装饰的函数（TIR 原语函数）参数名称及顺序在迁移前后保持不变。
 4. 从用户提供的算子代码工程里推断输入张量规格，不用询问用户。
-5. **编程模式默认 `developer`**（迁移类不问用户编程模式；用户显式指定时以用户为准）。
+5. **编程模式使用任务平台的 `programming_modes.migration_default`**（迁移类不问用户编程模式；用户显式指定时以用户为准）。
 6. **源算子路径必须透传 Stage 1/2**：调度 designer 与 reviewer 时必须在 prompt 中传入 `source_op_path`（plain=用户给出的源文件路径；harness=`.migration_meta.json` 中该函数的 GPU 源码路径，缺失时从 `gpu_repo_root` 定位）。Stage 1 据此执行「源算子三问解读 → 算法调研（Phase R，源算法只是候选之一）→ 硬件耦合性判定 → NPU 算法重设计」（DESIGN.md §0 + §1.6.0），Stage 2 据此核对 §0 解读与源码一致性；两者均不得在未读源码时臆测语义。
 
 > 子模式差异：harness 的多函数命名约定与 meta 读取见 harness.md §2；plain 的规格推断与精度门禁见本文件 §6。
@@ -22,7 +22,7 @@ disable: true
 在通用 Stage 1 输入（`op_requirements` 结构，格式见 `conductor-scenarios/new-op.md` §4）之上，迁移任务另传：
 
 - `source_op_path`（源算子文件路径）与 `source_output_shape`（源算子输出 shape，如 (M, N)；无法从源码推断时由 designer 解读后回填并标注依据）。
-- `DESIGN.md` 另含 **§0 源算子解读与迁移分析**（三问解读 + 算法调研 + 硬件耦合性判定 + NPU 算法重设计，**源算法已识别的优化手段不得静默丢弃**），§0 与 §1.6.0 的完整要求由 `tilelang-op-design` skill 的迁移执行流（Phase M0 → R → M1）承载，`statectl gate 1` 对 §0 章节做机械存在性校验。
+- `DESIGN.md` 另含 **§0 源算子解读与迁移分析**（三问解读 + 算法调研 + 硬件耦合性判定 + NPU 算法重设计，**源算法已识别的优化手段不得静默丢弃**），§0 与 §1.6.0 的完整要求由 平台配置 `stage_skills.design` 指定的技能 的迁移执行流（Phase M0 → R → M1）承载，`statectl gate 1` 对 §0 章节做机械存在性校验。
 
 ## 3. Stage 2 增补（9 维度检视）
 

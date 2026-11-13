@@ -58,15 +58,12 @@ import os
 import re
 import sys
 
+from pathlib import Path
+
+from platform_context import add_platform_args, get_platform, run_with_platform
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
-PL_DIR = os.path.join(
-    REPO_ROOT,
-    ".agents",
-    "skills",
-    "tilelang-op-optimize",
-    "references",
-    "pattern-library",
-)
+PL_DIR = os.path.join(REPO_ROOT, get_platform().prompt()["knowledge"]["patterns"])
 INDEX_PATH = os.path.join(PL_DIR, "INDEX.md")
 QUEUE_PATH = os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md")
 
@@ -483,7 +480,6 @@ def lint_queue(failures: list, warnings: list) -> None:
 
 
 def main() -> int:
-    global REPO_ROOT, PL_DIR, INDEX_PATH, QUEUE_PATH
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--files",
@@ -495,20 +491,18 @@ def main() -> int:
         "--root", default=None, help="override repo root (tests / apply-preview checks)"
     )
     ap.add_argument("--json", action="store_true", help="JSON output")
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd())
 
+
+def run(args) -> int:
+    global REPO_ROOT, PL_DIR, INDEX_PATH, QUEUE_PATH
     if args.root:
         REPO_ROOT = os.path.abspath(args.root)
-        PL_DIR = os.path.join(
-            REPO_ROOT,
-            ".agents",
-            "skills",
-            "tilelang-op-optimize",
-            "references",
-            "pattern-library",
-        )
-        INDEX_PATH = os.path.join(PL_DIR, "INDEX.md")
-        QUEUE_PATH = os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md")
+    PL_DIR = os.path.join(REPO_ROOT, get_platform().toolchain["knowledge"]["patterns"])
+    INDEX_PATH = os.path.join(PL_DIR, "INDEX.md")
+    QUEUE_PATH = os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md")
 
     files = [
         f if os.path.isabs(f) else os.path.join(REPO_ROOT, f)

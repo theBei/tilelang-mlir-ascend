@@ -53,7 +53,7 @@
 | `FAILED` | `BLOCKED_ACCURACY` | Stage 3 精度失败超限 |
 | `FAILED` | `BLOCKED_SCAFFOLD` | Stage 0 脚手架结构校验重试超限（仅 harness） |
 | `FAILED` | `BLOCKED_INTEGRATION` | Stage 5 集成验证重调度超限（仅 harness） |
-| `FAILED` | `BLOCKED_ENVIRONMENT` | 环境问题阻塞（torch / torch_npu / CANN 版本不达标、GPU repo 缺失、子模块修复失败等） |
+| `FAILED` | `BLOCKED_ENVIRONMENT` | 环境问题阻塞（平台工具链版本不达标、GPU repo 缺失、子模块修复失败等） |
 | `FAILED` | `BLOCKED_SPEC` | 用户拒绝提供必需字段，或 GPU 侧无 TileLang 实现不可迁移 |
 
 ## 4. 典型 `[DESIGN_ERROR]` 场景（设计修订触发识别）
@@ -64,11 +64,11 @@
 |------|----------|
 | 设计选用的 API 实际不可用 | Developer 报告"API 在 `tilelang/language/` 中无导出 / lowering 未实现" |
 | Tiling 策略导致 L0C 溢出 | 编译期或运行期报 L0C 超限 |
-| 分核策略违反静态边界约束 | 核内串行（persistent）任务数或循环边界依赖动态 shape / 运行时核数，与 Ascend 静态循环边界约束冲突 |
+| 分核策略违反静态边界约束 | 核内串行（persistent）任务数或循环边界依赖动态 shape / 运行时核数，与平台要求的静态循环边界约束冲突 |
 | 分核策略导致串行调度开销 | 逻辑核数远超物理核数被运行时串行调度（核启动风暴），Stage 3 跑测显著超时或性能异常 |
 | 内存层级路径无法实现 | 设计要求 GM→L0 直接搬运 |
 | 同步策略与编程模式冲突 | Developer 模式下要求手动 set_flag/wait_flag |
-| 设计的 loop 结构依赖动态边界 | 与 Ascend "只支持静态循环边界" 约束冲突 |
+| 设计的 loop 结构依赖动态边界 | 与平台声明的静态循环边界约束冲突 |
 | 精度调试多次后定位到根因是设计 | Stage 3 多次精度调试后 Developer 报告"修复实现层无解" |
 | 公式优化破坏语义（等价论证不成立） | Stage 2 维度 8 判 fail（§1.6.1 变形实际改变语义 / 累加顺序 / dtype 而无论证），或 Stage 3 精度失败根因指向优化后公式 |
 | 算法调研缺失或负向断言被推翻 | Stage 2 维度 8 判 fail（§1.6.0 四问缺失 / 候选表无基线 / 复杂度表缺口径，或"无在线变体/无化简公式"断言与参考表、源码 online 证据矛盾，或复杂度算术复算错误，或调研选 A 设计做 B） |

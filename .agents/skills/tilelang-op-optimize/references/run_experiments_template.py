@@ -30,9 +30,7 @@ Usage (inside perf_opt/):
 """
 
 import argparse
-import csv
 import datetime
-import glob
 import hashlib
 import json
 import os
@@ -41,6 +39,24 @@ import shlex
 import statistics
 import subprocess
 import sys
+from functools import partial
+from pathlib import Path
+
+TOOLS_DIR = next(
+    parent / ".agents" / "tools"
+    for parent in Path(__file__).resolve().parents
+    if (parent / ".agents" / "tools" / "platform_context.py").is_file()
+)
+sys.path.insert(0, str(TOOLS_DIR))
+
+from platform_context import (
+    add_platform_args,
+    get_adapter,
+    get_platform,
+    run_with_platform,
+    read_json,
+    task_state_path,
+)  # noqa: E402
 
 # --------------------------------------------------------------- CONFIG (ADAPT)
 OP = "my_op"  # ADAPT: operator name (file stem)
@@ -61,10 +77,6 @@ CURRENT_BEST_ID = "baseline"  # ADAPT: ID of the current merged kernel version
 
 PERF_RECORDS = "perf_records.jsonl"
 WORKLOAD_INVENTORY = "workload_inventory.json"
-MSPROF_METRICS = (
-    "BasicInfo,PipeUtilization,ArithmeticUtilization,Memory,MemoryUB,"
-    "MemoryL0,L2Cache,ResourceConflictRatio"
-)
 
 # ----------------------------------------------------------- EXPERIMENTS (ADAPT)
 # Each entry: {file, opt_id, parent_id}
@@ -91,7 +103,7 @@ def safe_component(value: str) -> str:
 
 def run_l0(branch_file: str) -> bool:
     proc = subprocess.run(
-        [sys.executable, branch_file, "--level", "L0"],
+        get_adapter().precision_command(branch_file, "L0"),
         capture_output=True,
         text=True,
         timeout=TIMEOUT_S,
@@ -103,15 +115,9 @@ def run_msprof(branch_file: str, workload_id: str, out_dir: str) -> dict:
     os.makedirs(out_dir, exist_ok=True)
     if os.name == "posix":
         os.chmod(out_dir, 0o700)
+    adapter = get_adapter()
     cmd = [
-        "msprof",
-        "op",
-        f"--kernel-name={KERNEL_NAME}",
-        f"--output={out_dir}",
-        f"--launch-count={LAUNCH_COUNT}",
-        f"--warm-up={WARM_UP}",
-        "--dump=off",
-        f"--aic-metrics={MSPROF_METRICS}",
+        *adapter.profiler_args(KERNEL_NAME, out_dir, LAUNCH_COUNT, WARM_UP),
         *build_bench_cmd(branch_file, workload_id),
     ]
     log = os.path.join("logs", safe_component(out_dir) + ".log")
@@ -122,21 +128,14 @@ def run_msprof(branch_file: str, workload_id: str, out_dir: str) -> dict:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S)
         f.write(proc.stdout + proc.stderr)
     if proc.returncode != 0:
-        return {"error": f"msprof rc={proc.returncode}", "log": log}
-    durs = []
-    for path in sorted(
-        glob.glob(os.path.join(out_dir, "OPPROF_*", "*", "*", "OpBasicInfo_*.csv"))
-    ):
-        with open(path) as f:
-            for row in csv.DictReader(f):
-                if row.get("Task Duration(us)"):
-                    durs.append(float(row["Task Duration(us)"]))
+        return {"error": f"{adapter.profiler} rc={proc.returncode}", "log": log}
+    durs = adapter.profile_samples(out_dir)
     if not durs:
         return {"error": "no OpBasicInfo rows", "log": log}
     return {
         "duration_us": round(statistics.median(durs), 3),
         "n": len(durs),
-        "msprof_raw_path": out_dir,
+        adapter.raw_profile_field: out_dir,
     }
 
 
@@ -182,8 +181,23 @@ def main() -> int:
         choices=("baseline", "candidate", "merged", "final"),
         default="candidate",
     )
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(
+        ap, args, partial(run, ap), Path(__file__).resolve().parent, verify=True
+    )
 
+
+def run(ap, args) -> int:
+    platform = get_platform()
+    task_state = task_state_path(args.task_dir or Path(__file__).resolve().parent)
+    if (
+        platform.hardware is not None
+        and task_state
+        and not read_json(task_state).get("platform_runtime")
+    ):
+        ap.error("start the task's tuning stage before collecting performance records")
+    adapter = get_adapter()
     if args.round is None:
         args.round = 0 if args.phase == "baseline" else 1
     if args.phase == "baseline" and args.round != 0:
@@ -237,14 +251,15 @@ def main() -> int:
                     {
                         **exp,
                         "workload_id": workload_id,
-                        "status": "msprof_fail",
+                        "status": f"{adapter.profiler}_fail",
                         "l0_pass": True,
                     }
                 )
-                print(f"  {workload_id}: msprof FAILED: {prof['error']}")
+                print(f"  {workload_id}: {adapter.profiler} FAILED: {prof['error']}")
                 continue
             append_record(
                 {
+                    **get_platform().evidence(),
                     "round": args.round,
                     "candidate_id": exp["opt_id"],
                     "parent_id": exp.get("parent_id"),
@@ -255,7 +270,7 @@ def main() -> int:
                     "artifact_sha256": file_sha256(branch),
                     "duration_us": prof["duration_us"],
                     "l0_pass": True,
-                    "msprof_raw_path": prof["msprof_raw_path"],
+                    adapter.raw_profile_field: prof[adapter.raw_profile_field],
                     "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime(
                         "%Y-%m-%dT%H:%M:%SZ"
                     ),
@@ -271,7 +286,7 @@ def main() -> int:
                 }
             )
             print(
-                f"  {workload_id}: L0 pass, median Task Duration = {prof['duration_us']} us"
+                f"  {workload_id}: L0 pass, median {adapter.duration_label} = {prof['duration_us']} us"
             )
 
     # summary table: candidates vs current best (B2 structured backflow)
@@ -286,7 +301,7 @@ def main() -> int:
             ):
                 bases[r.get("workload_id")] = r["duration_us"]
     print(
-        "\n| branch | workload_id | l0 | Task Duration(us) | vs current best | status |"
+        f"\n| branch | workload_id | l0 | {adapter.duration_label}(us) | vs current best | status |"
     )
     print("|---|---|---|---:|---:|---|")
     for r in results:

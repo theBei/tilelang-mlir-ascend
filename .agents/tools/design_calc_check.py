@@ -8,11 +8,10 @@ cannot be parsed from the document is reported as "skip" with the reason.
 Checks:
   1. ub_budget   -- sum the buffer sizes declared in the memory plan section
                     (mixed B/KB/MB units are normalized; VP-2026-0009) and
-                    compare against the per-AIV UB capacity (192KB, with the
-                    documented auto-multi-buffer inflation factor of ~1.7x
-                    reported alongside).
+                    compare against the platform budget and report its
+                    auto-multi-buffer inflation allowance.
   2. l0c_budget  -- for GEMM designs, block_M * block_N * accum_bytes must
-                    fit the 128KB L0C.
+                    fit the platform accumulator budget.
   3. core_split  -- recompute logical cores ceil(M/bm) * ceil(N/bn) from the
                     numbers the design declares and cross-check the declared
                     logical-core count.
@@ -30,9 +29,15 @@ import json
 import math
 import re
 
-UB_CAPACITY_KB = 192.0
-UB_INFLATION = 1.7
-L0C_CAPACITY_KB = 128.0
+from pathlib import Path
+
+from platform_context import (
+    add_platform_args,
+    get_adapter,
+    get_platform,
+    run_with_platform,
+)
+
 UNIT_KB = {"b": 1.0 / 1024, "kb": 1.0, "mb": 1024.0}
 
 
@@ -55,14 +60,6 @@ def _section(text: str, marker: str) -> str:
 
 SIZE_CHAIN_RE = re.compile(r"((?:\d+(?:\.\d+)?\s*\+\s*)+\d+(?:\.\d+)?)\s*(B|KB|MB)\b")
 SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(B|KB|MB)\b")
-LEVEL_CAPACITY_KB = {
-    "UB": 192.0,
-    "L1": 512.0,
-    "L0C": 128.0,
-    "L0": 128.0,
-    "L0A": 64.0,
-    "L0B": 64.0,
-}
 TOTAL_MARK = re.compile(r"合计|总占用|total", re.I)
 CAPACITY_MARK = re.compile(r"容量|佐证|参考|≤")
 
@@ -83,16 +80,20 @@ def _parse_sizes(s: str) -> list:
     return out
 
 
-def check_ub_budget(text: str) -> dict:
+def check_ub_budget(text: str, budget=None) -> dict:
     """Sum per-level buffer tables in the memory plan and compare against
     the level capacity; recompute any declared 合计 row."""
     sec = _section(text, "4.5") or _section(text, "内存") or ""
+    budget = budget or get_platform().design_budget()
+    table_levels = "|".join(map(re.escape, budget["table_levels"]))
+    heading_levels = "|".join(map(re.escape, budget["heading_levels"]))
+    inflation_level = budget["inflation_level"]
     level = None
     buckets = {}
     declared_totals = {}
     for ln in sec.splitlines():
-        m = re.search(r"\*\*\s*(UB|L1|L0C|L0A|L0B)\b", ln) or re.search(
-            r"^#{2,6}.*\b(UB|L1|L0C)\b", ln
+        m = re.search(rf"\*\*\s*({table_levels})\b", ln) or re.search(
+            rf"^#{{2,6}}.*\b({heading_levels})\b", ln
         )
         if m:
             level = m.group(1).upper()
@@ -116,12 +117,13 @@ def check_ub_budget(text: str) -> dict:
         vals = _parse_sizes(joined)
         if vals:
             buckets[level].extend(vals)
+    inflation = budget["ub_inflation"]
     checks = []
     for lv, sizes in buckets.items():
         if not sizes:
             continue
         total = sum(sizes)
-        cap = LEVEL_CAPACITY_KB.get(lv)
+        cap = budget["capacity_kb"].get(lv)
         detail = (
             f"{lv}: {len(sizes)} buffer entries sum = {total:.1f} KB"
             + (
@@ -131,22 +133,30 @@ def check_ub_budget(text: str) -> dict:
                 if lv in declared_totals
                 else ""
             )
-            + f"; capacity = {cap} KB"
             + (
-                f"; x{UB_INFLATION} auto-multi-buffer inflation budget = "
-                f"{cap / UB_INFLATION:.0f} KB"
-                if lv == "UB"
+                f"; capacity = {cap} KB"
+                if cap is not None
+                else "; capacity is unverified for the selected hardware"
+            )
+            + (
+                f"; x{inflation} auto-multi-buffer inflation budget = "
+                f"{cap / inflation:.0f} KB"
+                if lv == inflation_level and cap is not None and inflation is not None
                 else ""
             )
         )
-        status = "fail" if cap and total > cap else "pass"
+        status = "skip" if cap is None else ("fail" if total > cap else "pass")
         checks.append(
             {
                 "check": f"{lv.lower()}_budget",
                 "status": status,
                 "detail": detail,
                 "within_inflation_budget": (
-                    total <= cap / UB_INFLATION if lv == "UB" else None
+                    total <= cap / inflation
+                    if lv == inflation_level
+                    and cap is not None
+                    and inflation is not None
+                    else None
                 ),
             }
         )
@@ -160,17 +170,17 @@ def check_ub_budget(text: str) -> dict:
     return checks
 
 
-def check_l0c_budget(text: str) -> dict:
-    # L0C only exists on the Cube path: pure Vector/elementwise designs have
-    # no GEMM tiles, and any MxN pair we parse there is a tensor shape.
-    # Use affirmative API tokens only (negations like "无 matmul" don't count).
-    if not re.search(r"T\.gemm|load_nd2nz|store_fixpipe|Scope\(\s*[\"']Cube", text):
+def check_l0c_budget(text: str, budget=None) -> dict:
+    adapter = get_adapter()
+    if not adapter.has_matrix_path(text):
         return {
             "check": "l0c_budget",
             "status": "skip",
-            "detail": "no affirmative Cube-path API (T.gemm/load_nd2nz/"
-            "store_fixpipe/Scope(Cube)) in this design",
+            "detail": adapter.matrix_path_required_message(),
         }
+    budget = budget or get_platform().design_budget()
+    accumulator = budget["accumulator"]
+    level, dtype = accumulator["level"], accumulator["dtype"]
     sec = _section(text, "Tiling") or text
     bm = bn = None
     m = re.search(r"(?:block_?[MN]|bm)\s*[=×x*]\s*(\d+)", sec, re.I)
@@ -182,7 +192,9 @@ def check_l0c_budget(text: str) -> dict:
     if bm is None or bn is None:
         # try "bm x bn" adjacent pattern
         m = re.search(
-            r"\b(\d{2,4})\s*[x×*]\s*(\d{2,4})\b.*?(?:L0C|累加|accum|fp32)", text
+            rf"\b(\d{{2,4}})\s*[x×*]\s*(\d{{2,4}})\b.*?"
+            rf"(?:{re.escape(level)}|累加|accum|{re.escape(dtype)})",
+            text,
         )
         if m:
             bm, bn = int(m.group(1)), int(m.group(2))
@@ -192,15 +204,20 @@ def check_l0c_budget(text: str) -> dict:
             "status": "skip",
             "detail": "no block_M x block_N values parsed",
         }
-    accum_bytes = 4  # fp32 accumulation is the design default
-    need_kb = bm * bn * accum_bytes / 1024.0
-    ok = need_kb <= L0C_CAPACITY_KB
+    need_kb = bm * bn * accumulator["bytes"] / 1024.0
+    capacity = budget["capacity_kb"].get(level)
+    if capacity is None:
+        return {
+            "check": "l0c_budget",
+            "status": "skip",
+            "detail": f"{level} capacity is unverified for the selected hardware",
+        }
+    ok = need_kb <= capacity
     return {
         "check": "l0c_budget",
         "status": "pass" if ok else "fail",
         "detail": (
-            f"block {bm}x{bn} x fp32 accum = {need_kb:.1f} KB vs "
-            f"L0C {L0C_CAPACITY_KB:.0f} KB"
+            f"block {bm}x{bn} x {dtype} accum = {need_kb:.1f} KB vs {level} {capacity:.0f} KB"
         ),
     }
 
@@ -278,27 +295,34 @@ def check_r3_metrics(text: str) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--design", required=True, help="path to DESIGN.md")
+    ap.add_argument("--workload", help="measurement workload key for design budget")
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path(args.design).resolve().parent)
+
+
+def run(args) -> int:
     try:
         with open(args.design, encoding="utf-8") as f:
             text = f.read()
     except OSError as e:
         print(json.dumps({"error": str(e)}))
         return 0
-    ub = check_ub_budget(text)
+    budget = get_platform().design_budget(args.workload)
+    ub = check_ub_budget(text, budget)
     if not isinstance(ub, list):
         ub = [ub]
     report = {
         "design": args.design,
         "capacity_constants": {
-            "ub_kb": UB_CAPACITY_KB,
-            "ub_inflation": UB_INFLATION,
-            "l0c_kb": L0C_CAPACITY_KB,
-            "source": "pattern-library/constants.md CONST-capacity-910B2C",
+            "ub_kb": budget["capacity_kb"].get(budget["inflation_level"]),
+            "ub_inflation": budget["ub_inflation"],
+            "l0c_kb": budget["capacity_kb"].get(budget["accumulator"]["level"]),
+            "source": budget["source"],
         },
         "checks": [
             *ub,
-            check_l0c_budget(text),
+            check_l0c_budget(text, budget),
             check_core_split(text),
             check_r3_metrics(text),
         ],

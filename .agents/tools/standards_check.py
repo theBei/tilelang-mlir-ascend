@@ -72,7 +72,7 @@ FINGERPRINTS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     ),
     "SC-DUP-CORESPLIT2": (
         f"{_STD}/core-split-strategy.md",
-        "禁止以文档假设或经验值（如 20~24）替代实查",
+        "按任务平台规则实查目标设备物理核数",
         (f"{_STD}/core-split-strategy.md",),
     ),
     "SC-DUP-RESEARCH": (
@@ -152,7 +152,7 @@ FINGERPRINTS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     ),
     "SC-DUP-PERFRECORDS": (
         f"{_STD}/signal-registry.md",
-        "{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, msprof_raw_path, timestamp}",
+        "{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, <平台原始采集字段>, timestamp}",
         (f"{_STD}/signal-registry.md",),
     ),
 }

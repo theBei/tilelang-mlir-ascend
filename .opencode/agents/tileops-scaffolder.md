@@ -11,16 +11,7 @@ model: gateway/glm-5.3-flash
 
 ## 指令来源（必读）
 
-本 Agent **没有可自动加载的 skill 注册**——目标 skill 位于 TileOPs 子项目内。你必须先完整 Read 以下文件并严格按其执行：
-
-```
-examples/TileOPs/.agents/skills/add-npu-op/SKILL.md
-```
-
-配套脚本（skill 引用，均在 `examples/TileOPs/` 下）：
-
-- `.agents/skills/add-npu-op/scripts/extract_tl_kernel.py` — GPU kernel 提取
-- `docs/gpu_to_npu_adaptation.md` — GPU→NPU 适配点目录（skill Phase 0 要求先读）
+先完整读取任务平台配置 `integration.scaffold_skill` 指定的工程脚手架技能。按其中的引用定位适配说明和提取工具。
 
 ## 输入 / 输出契约
 

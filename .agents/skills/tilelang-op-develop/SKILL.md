@@ -9,7 +9,7 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
 
 根据 Stage 1 冻结的 `DESIGN.md` 与 Stage 2 通过的 `REVIEW.md`，生成算子实现文件 `{op}.py`（含 `@tilelang.jit` kernel + 内嵌 PyTorch golden + main 入口），执行测试，并返回四出口判定（[PRECISION_PASS] / [PRECISION_FAIL] / [DESIGN_ERROR] / RUNTIME_FAIL）供 conductor 路由。
 
-> **环境前提**：本 skill 运行在已具备 NPU 设备的环境中，`tilelang` 与 `torch_npu` 可正常导入。kernel 编译与执行在 NPU 上真实进行，精度校验为真实结果。
+> **环境前提**：按任务平台规则加载执行环境并确认依赖。kernel 编译和精度校验在目标设备上实际执行。
 
 ---
 
@@ -31,20 +31,20 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
 ### Phase 1：读取设计
 1. Read `DESIGN.md` 全文，提取：算子名、I/O 规格、编程模式、API 映射、Tiling、内存层级、同步策略、L0 测试计划、精度标准。
 2. Read `REVIEW.md`，确认检视已通过（如有 warn 项记录但不阻塞）。
-3. Read `tilelang-op-optimize` skill 的 [pattern-library/INDEX.md](../tilelang-op-optimize/references/pattern-library/INDEX.md)（条目索引）并按命中精读主题文件（[layout.md](../tilelang-op-optimize/references/pattern-library/layout.md) / [attention.md](../tilelang-op-optimize/references/pattern-library/attention.md) 已验证模式、[traps-compiler.md](../tilelang-op-optimize/references/pattern-library/traps-compiler.md) / [traps-runtime.md](../tilelang-op-optimize/references/pattern-library/traps-runtime.md) 编译器/运行时陷阱，**注意版本戳**——重编译后旧结论待重验，`kb_stale_check.py` 检测）——实现与调试前必读；调试中命中的条目在返回的 `skills_consulted` 中注明引用。
+3. 读取任务平台配置 `knowledge.patterns` 下的 INDEX.md，按检索命中精读布局模式、性能经验或编译与运行时陷阱。实现与调试前检查知识条目的版本戳，调试命中在 `skills_consulted` 中注明。
 
 ### Phase 2：生成 kernel
-1. 按 DESIGN.md §3 API 映射 + §6 循环结构生成 `@tilelang.jit(target="npuir")` kernel。
-2. **优先 v-prefix API**（vadd/vmul/vexp/vcast/vbrc），npuir_xxx 仅作兼容。
+1. 按 DESIGN.md §3 API 映射、§6 循环结构及任务平台规则生成 kernel。
+2. API 选型按任务平台规则及其编程指南。
 3. 遵循项目根 AGENTS.md："不要凭记忆猜 API"、"从示例入手"——先 Glob `examples/` 同类实现参考。
 
 ### Phase 3：生成 golden
 1. 按 DESIGN.md §8.1 生成 PyTorch CPU 参考实现 `golden_{op}(...)`。
-2. Golden 必须在 CPU 上可独立运行（不依赖 torch_npu）。
+2. Golden 必须在 CPU 上可独立运行（独立于设备运行时）。
 
 ### Phase 4：执行测试
-1. 跑 L0：`python {op}.py --level L0`。
-2. L0 通过后扩展 L1/L2/Boundary 并跑全量 `--level all`。
+1. 按任务平台规则运行 L0。
+2. L0 通过后扩展 L1/L2/Boundary 并按任务平台规则跑全量。
 3. 收集结果：max_diff、失败用例 shape、层级。
 
 ### Phase 5：四出口判定与返回
@@ -73,26 +73,21 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
 
 ## 4. `{op}.py` 结构规范
 
-TileOPs harness 迁移的最终 kernel 产物必须在模块顶层声明字面量
-`ASCEND_MODE = "Developer"` 或 `ASCEND_MODE = "Expert"`。该值是 Stage 3
-实际通过验证的实现模式；实现过程中切换模式时，以最终实现为准。独立运行
-kernel 测试时设置的 `TILELANG_ASCEND_MODE` 必须与此值一致。保留这一声明，
-供 Stage 5 在运行 report 前同步 TileOPs 的 `Kernel.ascend_mode`。不要把 Stage 3
-调度字段 `mode`（`first_impl` / `retry_impl` / `precision_fix`）当作编程模式。
+TileOPs harness 最终 kernel 按任务平台规则声明已验证的编程模式，供 Stage 5 集成使用。Stage 3 调度模式与 kernel 编程模式分别记录。
 
 生成的文件必须包含以下组成部分（顺序）：
 注意：*.py 中的注释只能使用英文
 
 ```python
 # 1. Copyright (c) Huawei Technologies Co., Ltd. 2026.
-# 2. imports (tilelang or torch_npu)
+# 2. platform and reference imports
 # 2. golden_{op}(...) function
 # 3. @tilelang.jit kernel
 # 4. precision comparing func：run_case()
 # 5. main()
 ```
 
-完整可运行模板见 [templates/op_template.py](templates/op_template.py).
+完整可运行模板由任务平台配置的 `templates.kernel` 提供。
 
 ### main 块结构
 
@@ -121,7 +116,7 @@ def main():
 | L0C/UB 溢出 | 编译期或运行期报容量超限 | 返回 `[DESIGN_ERROR]` + 原因 |
 | 精度不达标 | `assert_close` 失败 | 返回 `[PRECISION_FAIL]` + max_diff/失败 shape |
 | 内存层级越级 | stderr 提示 GM/L1/UB/L0 访问违规 | 返回 `[DESIGN_ERROR]` + 原因 |
-| 环境问题 | `ImportError` 指向 tilelang/torch_npu 未安装或未 `source set_env.sh` | 返回运行失败，提示检查环境 |
+| 环境问题 | `ImportError` 指向平台依赖未安装或环境未激活 | 返回运行失败，提示检查环境 |
 
 ---
 
@@ -143,7 +138,7 @@ cp {op}.py history_version/{op}_impl_s3_attempt{N}.py
 ## Stage Result
 - stage: 3
 - mode: first_impl / retry_impl / precision_fix
-- programming_mode: Developer / Expert（最终通过验证的 kernel 模式）
+- programming_mode: <最终通过验证的 kernel 模式，按平台规则记录>
 - project: {project}
 - operator: {op}
 - output: examples/{project}/{op}/{op}.py

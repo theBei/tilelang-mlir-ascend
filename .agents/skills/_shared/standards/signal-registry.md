@@ -34,7 +34,7 @@
 |------|--------|---------|
 | `scenario` | `new_op` / `migration` / `optimize` | `statectl init --scenario` |
 | `migration_mode` | `harness` / `plain` | `statectl init --migration-mode` |
-| `programming_mode`（`op_requirements` 字段） | `developer` / `expert` / `hybrid` | 预检归一化后传入 designer（用户可答 Developer/Expert/混合，写入前一律归一为小写枚举） |
+| `programming_mode`（`op_requirements` 字段） | 任务平台配置 `programming_modes.choices` 的键 | 预检按平台选项归一化后传入 designer |
 | `perf_tuning_requested` | `yes` / `no` | `statectl set --perf-tuning yes\|no` |
 | `perf_feedback.action` | `archive` / `revise` / `none` | `statectl set --perf-feedback-action`（前置：`perf_opt/perf_feedback.md` 存在） |
 | `phase` | `SCAFFOLD / DESIGN / REVIEW / DEVELOP / TUNING / INTEGRATE / DONE / FAILED` | statectl 迁移 |
@@ -56,13 +56,15 @@
 
 `perf_records.jsonl` 每行字段：
 
-`{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, msprof_raw_path, timestamp}`
+`{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, <平台原始采集字段>, timestamp}`
 
-`phase` 为 `baseline` / `candidate` / `merged` / `final`。`artifact_path` 指向实际测量的候选 kernel 文件，`artifact_sha256` 是采集时该文件的 SHA256；final 记录的路径和哈希须与最终 `perf_opt/{op}.py` 一致。只有 inventory 中 `kind=tune` 的项可以有性能记录；每项必须有有效 baseline 和 final 记录。对同一个 `kernel_id`，全部 final 记录须使用同一个 `candidate_id`，且在最终文件上重新测得；合并时与上一已合并版本逐 workload 比较，最终再与 baseline 比较。Final Summary 须有 `Final Performance Test Data` 表，逐项列 `kernel_id | workload_id | baseline_us | final_us | final_candidate_id`，不得拼接各实验分支的最好成绩。`msprof op Task Duration(us)` 是唯一时延口径。无 tune 项的 kernel 可记录 `no_tunable_workload`，不生成虚假性能数据。
+原始采集字段名由任务平台配置 `measurement.raw_evidence_field` 提供。新任务的每行还要包含 `hardware_id`、`toolchain_id`、`platform_config` 和 `platform_runtime`，取值与本次任务状态一致。旧任务继续读写旧字段。
+
+`phase` 为 `baseline` / `candidate` / `merged` / `final`。`artifact_path` 指向实际测量的候选 kernel 文件，`artifact_sha256` 是采集时该文件的 SHA256；final 记录的路径和哈希须与最终 `perf_opt/{op}.py` 一致。只有 inventory 中 `kind=tune` 的项可以有性能记录；每项必须有有效 baseline 和 final 记录。对同一个 `kernel_id`，全部 final 记录须使用同一个 `candidate_id`，且在最终文件上重新测得；合并时与上一已合并版本逐 workload 比较，最终再与 baseline 比较。Final Summary 须有 `Final Performance Test Data` 表，逐项列 `kernel_id | workload_id | baseline_us | final_us | final_candidate_id`，不得拼接各实验分支的最好成绩。时延使用平台规则声明的测量口径。无 tune 项的 kernel 可记录 `no_tunable_workload`，不生成虚假性能数据。
 
 机械校验（gate 4）：依据 inventory 核对分类与覆盖，逐 tune workload 校验 baseline/final、同一 kernel 的 final candidate 一致、Final Performance Test Data 逐项时延与 JSONL 偏差 ≤1%；smoke 仅核对 `precision_pass`，skip 核对 reason，二者不得有性能记录；迭代日志仍须含「候选 vs current best」对比表。
 
 ## 6. 关键术语的执行定义
 
-- **二次校验精度**：conductor 在 Stage 3 返回 `[PRECISION_PASS]` 后**重新跑全量** `python {op}.py --level all` 确认结果真实性（不只复跑 L0）。
+- **二次校验精度**：conductor 在 Stage 3 返回 `[PRECISION_PASS]` 后按平台规则**重新跑全量精度** 确认结果真实性（不只复跑 L0）。
 - **四出口判定（Stage 3）**：`[PRECISION_PASS]` / `[PRECISION_FAIL]` / `[DESIGN_ERROR]`（三者均为带标记返回）/ `RUNTIME_FAIL`（无标记且 exit code ≠ 0）。路由表见 [stage3-routing.md](stage3-routing.md) §2。

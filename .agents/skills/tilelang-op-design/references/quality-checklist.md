@@ -13,7 +13,7 @@
 | 7 | **无占位符或模糊描述**：无 `{placeholder}`、TODO、「待补充」（已确认的除外） | ✅ 必须 |
 | 8 | **技术约束已确认**：三维 Kernel等问题已处理 | ✅ 必须 |
 | 9 | **含 GEMM 场景**：Tiling 策略满足 NPU 分形限制（block_M ≥ 16, block_N ≥ 16） | ✅ 必须 |
-| 10 | **含 GEMM 场景 L0C 容量约束验证**：`block_M × block_N × sizeof(accum_dtype) ≤ L0C_capacity (128KB)` | ⭕ 推荐 |
+| 10 | **含 GEMM 场景 L0C 容量约束验证**：`block_M × block_N × sizeof(accum_dtype) ≤ 任务平台的已核验 L0C_capacity` | ⭕ 推荐 |
 | 11 | **含 GEMM 场景非整除处理策略明确**：主机侧 padding+crop 或 Kernel 内动态 block，说明溢出 / 下溢处理 | ✅ 必须 |
 | 12 | **本项目同类实现已列出**：有具体的 examples/ 文件路径参考 | ✅ 必须 |
 | 13 | **参考实现差异已说明**：如有外部参考，列出 API/结构差异 | ⭕ 推荐 |

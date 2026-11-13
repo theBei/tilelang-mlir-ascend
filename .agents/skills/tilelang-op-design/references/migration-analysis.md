@@ -163,8 +163,8 @@ NPU 侧设计方案（DESIGN.md §1–§11 以此为输入；§0 记录全过程
 
 | GPU / 通用概念 | Ascend NPU 等价能力 | 处置建议 | 注意事项 |
 |----------------|--------------------|---------|----------|
-| shared memory | L1（Cube 输入）/ UB（Vector 数据） | 等价替换 | 容量与对齐不同：L1 512KB、UB 192KB、32B 对齐 |
-| Tensor Core mma | Cube 单元（`T.gemm` + L0A/L0B/L0C） | 等价替换 | 分形限制 M≥16 / N≥16 / K≥32；L0C 128KB；NZ 布局 |
+| shared memory | L1（Cube 输入）/ UB（Vector 数据） | 等价替换 | 容量与对齐不同：按目标型号配置和工具链规则核对 L1、UB 容量及对齐 |
+| Tensor Core mma | Cube 单元（`T.gemm` + L0A/L0B/L0C） | 等价替换 | 按工具链规则核对分形与 NZ 布局，L0C 容量读取目标型号预算 |
 | warp shuffle 归约 | Vector 归约（`T.reduce_sum/max/min`） | **重新设计** | 并行层级不同：warp 32 线程内 shuffle → 向量整行归约，需重排归约策略 |
 | cp.async / 多级异步流水 | `T.Pipelined` + MTE 异步搬运 | 等价替换 | num_stages 需按 UB/L1 容量重新计算 |
 | double buffer | 多 buffer 交替 | 等价替换 | — |

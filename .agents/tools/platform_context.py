@@ -1,0 +1,306 @@
+"""Resolve hardware and toolchain separately and pin their selection per task."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+from toolchains import TOOLCHAINS
+from toolchains.adapter import ToolchainAdapter
+
+ROOT = Path(__file__).resolve().parents[2]
+PLATFORMS = ROOT / ".agents/platforms"
+DEFAULT_TOOLCHAIN = "npuir"
+STATE_FILES = (".migration_state.json", ".stage_state.json")
+ACTIVE = ContextVar("task_platform", default=None)
+
+
+class PlatformError(ValueError):
+    """Invalid, incomplete or inconsistent platform selection."""
+
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PlatformError(f"cannot read {path}: {exc}") from exc
+
+
+def probe_device(adapter):
+    try:
+        return adapter.probe_device()
+    except (ImportError, OSError, RuntimeError, AttributeError) as exc:
+        raise PlatformError(f"device probe failed: {exc}") from exc
+
+
+def config_revision(config):
+    return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+
+
+def hardware_profiles():
+    return {
+        path.stem: read_json(path)
+        for path in sorted((PLATFORMS / "hardware").glob("*.json"))
+    }
+
+
+def identify_device(device, profiles):
+    for hardware_id, profile in profiles.items():
+        if device["name"] in profile["device_names"]:
+            return hardware_id
+    raise PlatformError(f"unrecognized device model: {device['name']}")
+
+
+@dataclass(frozen=True)
+class PlatformContext:
+    adapter: ToolchainAdapter
+    toolchain: dict
+    hardware: dict | None
+    compatibility: dict | None = None
+    runtime: dict | None = None
+
+    @property
+    def selection(self):
+        if self.hardware is None:
+            return {}
+        return {
+            "hardware_id": self.hardware["hardware_id"],
+            "toolchain_id": self.toolchain["toolchain_id"],
+            "platform_config": {
+                "hardware": config_revision(self.hardware),
+                "toolchain": config_revision(self.toolchain),
+            },
+        }
+
+    def measurements(self, stamp=None, workload=None):
+        if self.hardware is None:
+            return []
+        stamp = stamp or (self.runtime or {}).get("toolchain_stamp", {}).get("raw")
+        if not stamp:
+            return []
+        records = read_json(PLATFORMS / "measurements/index.json")["measurements"]
+        return [
+            record
+            for record in records
+            if record["hardware_id"] == self.hardware["hardware_id"]
+            and record["toolchain_id"] == self.toolchain["toolchain_id"]
+            and record["toolchain_stamp"] == stamp
+            and (workload is None or record["workload"] == workload)
+        ]
+
+    def design_budget(self, workload=None):
+        if self.compatibility is not None:
+            budget = self.compatibility["design_budget"]
+        else:
+            multipliers = [
+                item["value"]
+                for item in self.measurements(workload=workload)
+                if workload is not None
+                and item["metric"] == "ub_inflation_factor"
+                and item["unit"] == "ratio"
+            ]
+            budget = {
+                **self.toolchain["design_rules"],
+                "capacity_bytes": self.hardware["capacity_bytes"],
+                "ub_inflation_factor": multipliers[0]
+                if len(multipliers) == 1
+                else None,
+                "source": self.hardware["capacity_source"],
+            }
+        return {
+            **budget,
+            "capacity_kb": {
+                name: value / 1024 for name, value in budget["capacity_bytes"].items()
+            },
+            "ub_inflation": budget["ub_inflation_factor"],
+        }
+
+    def prompt(self):
+        if self.compatibility is not None:
+            return {**self.compatibility, "compatibility_mode": True}
+        return {
+            **self.toolchain,
+            **self.selection,
+            "hardware": self.hardware,
+            "design_budget": self.design_budget(),
+            "cost_measurements": self.measurements(),
+            "runtime": self.runtime,
+        }
+
+    def verified(self):
+        if self.hardware is None:
+            return self
+        return replace(self, runtime=self.probe())
+
+    def evidence(self):
+        if self.hardware is None:
+            return {}
+        return {**self.selection, "platform_runtime": self.runtime}
+
+    def probe(self):
+        if self.hardware is None:
+            return {"observed_cores": self.adapter.device_cores()}
+        device = probe_device(self.adapter)
+        if device["name"] not in self.hardware["device_names"]:
+            raise PlatformError(
+                f"expected {self.hardware['hardware_id']}, active device reports {device['name']}"
+            )
+        stamp = self.adapter.toolchain_stamp(str(ROOT), active=True)
+        if not all(stamp.get(key) for key in ("tilelang", "cann", "compiler")):
+            raise PlatformError("active NPUIR toolchain version could not be verified")
+        result = {"device": device, "toolchain_stamp": stamp}
+        if self.runtime is not None and self.runtime != result:
+            raise PlatformError(
+                "active device capabilities or toolchain version differ from the task record"
+            )
+        return result
+
+
+def legacy_context():
+    adapter = TOOLCHAINS[DEFAULT_TOOLCHAIN]()
+    return PlatformContext(
+        adapter,
+        adapter.workflow_context(),
+        None,
+        read_json(PLATFORMS / "compatibility/legacy-npuir.json"),
+    )
+
+
+def resolve_platform(hardware=None, toolchain=None, *, detect=False, state=None):
+    if state is not None:
+        if not isinstance(state, dict):
+            raise PlatformError("task state must be a JSON object")
+        saved = (state.get("hardware_id"), state.get("toolchain_id"))
+        runtime = state.get("platform_runtime")
+        if runtime is not None and (
+            not isinstance(runtime, dict)
+            or not isinstance(runtime.get("device"), dict)
+            or not isinstance(runtime.get("toolchain_stamp"), dict)
+            or not isinstance(runtime["toolchain_stamp"].get("raw"), str)
+        ):
+            raise PlatformError("invalid platform_runtime in task state")
+        if saved == (None, None):
+            if any(
+                key in state
+                for key in (
+                    "hardware_id",
+                    "toolchain_id",
+                    "platform_config",
+                    "platform_runtime",
+                )
+            ):
+                raise PlatformError(
+                    "task state must contain both hardware_id and toolchain_id"
+                )
+            if hardware or toolchain:
+                raise PlatformError(
+                    "this task uses the legacy compatibility configuration"
+                )
+            return legacy_context()
+        if (hardware and hardware != saved[0]) or (toolchain and toolchain != saved[1]):
+            raise PlatformError(
+                "requested hardware or toolchain differs from the task selection"
+            )
+        hardware, toolchain = saved
+        if not hardware or not toolchain:
+            raise PlatformError(
+                "task state must contain both hardware_id and toolchain_id"
+            )
+    elif not (hardware or toolchain or detect):
+        return legacy_context()
+    toolchain = toolchain or DEFAULT_TOOLCHAIN
+    if toolchain not in TOOLCHAINS:
+        raise PlatformError(f"unknown toolchain: {toolchain}")
+    adapter = TOOLCHAINS[toolchain]()
+    toolchain_config = adapter.workflow_context()
+    profiles = hardware_profiles()
+    if hardware is None:
+        hardware = identify_device(probe_device(adapter), profiles)
+    if hardware not in profiles:
+        raise PlatformError(f"unknown hardware model: {hardware}")
+    if hardware not in toolchain_config["supported_hardware"]:
+        raise PlatformError(f"{toolchain} is not configured for {hardware}")
+    context = PlatformContext(
+        adapter,
+        toolchain_config,
+        profiles[hardware],
+        runtime=state.get("platform_runtime") if state is not None else None,
+    )
+    if (
+        state is not None
+        and state.get("platform_config") != context.selection["platform_config"]
+    ):
+        raise PlatformError(
+            "hardware or toolchain configuration changed since task initialization"
+        )
+    return context
+
+
+def task_state_path(directory, *, exact=False, state_files=STATE_FILES):
+    path = Path(directory).resolve()
+    directories = (path,) if exact else (path, *path.parents)
+    for parent in directories:
+        for name in state_files:
+            candidate = parent / name
+            if candidate.is_file():
+                return candidate
+        if (parent / ".git").exists():
+            break
+    return None
+
+
+def add_platform_args(parser, *, task_dir=True):
+    parser.add_argument("--hardware", help="hardware model ID")
+    parser.add_argument("--toolchain", help="toolchain ID (default: npuir)")
+    if task_dir:
+        parser.add_argument("--task-dir", help="directory containing the task state")
+
+
+def command_platform(args, directory=None):
+    inferred = task_state_path(directory) if directory else None
+    explicit = task_state_path(args.task_dir, exact=True) if args.task_dir else None
+    if args.task_dir and explicit is None:
+        raise PlatformError(f"no task state found at {args.task_dir}")
+    path = explicit or inferred
+    platform = resolve_platform(
+        args.hardware, args.toolchain, state=read_json(path) if path else None
+    )
+    if explicit and inferred and explicit != inferred:
+        inferred_platform = resolve_platform(state=read_json(inferred))
+        if inferred_platform.evidence() != platform.evidence():
+            raise PlatformError(
+                "selected task platform differs from the artifact's task"
+            )
+    return platform
+
+
+def get_platform():
+    return ACTIVE.get() or legacy_context()
+
+
+def run_with_platform(parser, args, run, directory=None, *, verify=False):
+    try:
+        platform = command_platform(args, directory)
+        if verify:
+            platform = platform.verified()
+    except (PlatformError, ImportError, OSError, RuntimeError) as exc:
+        parser.error(str(exc))
+    with using_platform(platform):
+        return run(args)
+
+
+def get_adapter():
+    return get_platform().adapter
+
+
+@contextmanager
+def using_platform(context):
+    token = ACTIVE.set(context)
+    try:
+        yield
+    finally:
+        ACTIVE.reset(token)

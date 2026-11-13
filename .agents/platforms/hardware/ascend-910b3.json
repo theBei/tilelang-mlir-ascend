@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "hardware_id": "ascend-910b3",
+  "device_names": [
+    "Ascend910B3"
+  ],
+  "capacity_bytes": {},
+  "capacity_source": null,
+  "observed_cores": {
+    "cube": 20,
+    "vector": 40
+  },
+  "core_source": "Cannlab 910B3, torch.npu.get_device_properties(0), 2026-11-13"
+}

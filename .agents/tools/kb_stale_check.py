@@ -4,11 +4,8 @@
 changes" was a prose-only convention; this tool makes it mechanical. It never
 modifies library files -- it only reports.
 
-Current stamp detection (best effort, override with --stamp):
-  tilelang: import tilelang and read __version__ + repo HEAD if this repo is
-            a dev root (git rev-parse --short HEAD)
-  CANN:     $ASCEND_HOME_PATH/../version.cfg or /usr/local/Ascend/ascend-
-            toolkit/latest/version.cfg (Version= line)
+Current stamp detection is delegated to the platform adapter. Override it
+with --stamp when checking a recorded toolchain.
 
 Comparison: an entry is "stale-candidate" when both its toolchain stamp and
 the current stamp parse to a tilelang commit (7-40 hex) or version tuple and
@@ -17,7 +14,7 @@ they differ; entries whose stamp cannot be parsed are listed as "unknown"
 (--include-unknown to also list unparsable ones).
 
 Usage:
-  python3 .agents/tools/kb_stale_check.py [--stamp "tilelang X + CANN Y"]
+  python3 .agents/tools/kb_stale_check.py [--stamp "tilelang X + toolchain Y"]
                                           [--include-unknown] [--json]
 Exit 0 always (advisory); consumes the JSON "stale" list in conductor start /
 optimizer Phase 0 as the pre-task re-verification checklist. Repro-backed
@@ -30,69 +27,36 @@ import glob
 import json
 import os
 import re
-import subprocess
 import sys
 
+from pathlib import Path
+
+from platform_context import (
+    add_platform_args,
+    get_adapter,
+    get_platform,
+    run_with_platform,
+)
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
-KB_GLOBS = [
-    os.path.join(
-        REPO_ROOT,
-        ".agents",
-        "skills",
-        "tilelang-op-optimize",
-        "references",
-        "pattern-library",
-        "*.md",
-    ),
-    os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md"),
-]
+
+
+def knowledge_globs():
+    pattern_dir = get_platform().toolchain["knowledge"]["patterns"]
+    return [
+        os.path.join(REPO_ROOT, pattern_dir, "*.md"),
+        os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md"),
+    ]
+
+
 COMMIT_RE = re.compile(r"\b([0-9a-f]{7,40})\b")
 VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 
 
 def detect_current_stamp() -> dict:
-    stamp = {"tilelang": None, "tilelang_commit": None, "cann": None, "raw": ""}
-    try:
-        import io
-        import contextlib
-
-        with (
-            contextlib.redirect_stdout(io.StringIO()),
-            contextlib.redirect_stderr(io.StringIO()),
-        ):
-            import tilelang  # noqa: PLC0415
-        stamp["tilelang"] = getattr(tilelang, "__version__", None)
-    except Exception:  # noqa: BLE001 -- advisory tool
-        pass
-    try:
-        head = subprocess.run(
-            ["git", "rev-parse", "--short=10", "HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if head.returncode == 0:
-            stamp["tilelang_commit"] = head.stdout.strip()
-    except Exception:  # noqa: BLE001
-        pass
-    for cand in (
-        os.environ.get("ASCEND_HOME_PATH", "").rstrip("/") + "/../version.cfg",
-        "/usr/local/Ascend/ascend-toolkit/latest/version.cfg",
-    ):
-        try:
-            with open(cand) as f:
-                text = f.read()
-            m = re.search(r"Version\s*=\s*(\S+)", text)
-            if m:
-                stamp["cann"] = m.group(1)
-                break
-        except OSError:
-            continue
-    stamp["raw"] = "tilelang {} (commit {}) + CANN {}".format(
-        stamp["tilelang"] or "?", stamp["tilelang_commit"] or "?", stamp["cann"] or "?"
+    return get_adapter().toolchain_stamp(
+        REPO_ROOT, active=get_platform().hardware is not None
     )
-    return stamp
 
 
 def parse_entries(path: str) -> list:
@@ -100,11 +64,24 @@ def parse_entries(path: str) -> list:
         text = f.read()
     rel = os.path.relpath(path, REPO_ROOT)
     entries = []
+    hardware = get_platform().hardware
+    device_names = (
+        {name.lower().removeprefix("ascend") for name in hardware["device_names"]}
+        if hardware
+        else set()
+    )
     parts = re.split(r"(?m)^---\s*$", text)
     for i in range(1, len(parts) - 1, 2):
         fm_raw = parts[i]
         m = re.search(r"^toolchain:\s*(.+)$", fm_raw, re.M)
         mid = re.search(r"^id:\s*(\S+)", fm_raw, re.M)
+        device = re.search(r"^device:[ \t]*(\S+)", fm_raw, re.M)
+        if (
+            device
+            and device_names
+            and device.group(1).lower().removeprefix("ascend") not in device_names
+        ):
+            continue
         if m and mid:
             entries.append(
                 {"id": mid.group(1), "toolchain": m.group(1).strip(), "path": rel}
@@ -142,7 +119,12 @@ def main() -> int:
     )
     ap.add_argument("--include-unknown", action="store_true")
     ap.add_argument("--json", action="store_true")
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd())
+
+
+def run(args) -> int:
 
     if args.stamp:
         current = {
@@ -152,10 +134,12 @@ def main() -> int:
             "tilelang": None,
         }
     else:
-        current = detect_current_stamp()
+        current = (get_platform().runtime or {}).get(
+            "toolchain_stamp"
+        ) or detect_current_stamp()
 
     stale, unknown = [], []
-    for pattern in KB_GLOBS:
+    for pattern in knowledge_globs():
         for path in sorted(glob.glob(pattern)):
             if not os.path.isfile(path):
                 continue

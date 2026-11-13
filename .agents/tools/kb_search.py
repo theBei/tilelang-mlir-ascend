@@ -31,48 +31,27 @@ import os
 import re
 import sys
 
+from pathlib import Path
+
+from platform_context import add_platform_args, get_platform, run_with_platform
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
-SOURCES = [
-    (
-        "pattern-library",
-        os.path.join(
-            REPO_ROOT,
-            ".agents",
-            "skills",
-            "tilelang-op-optimize",
-            "references",
-            "pattern-library",
-            "*.md",
+
+
+def knowledge_sources():
+    knowledge = get_platform().toolchain["knowledge"]
+    return [
+        ("pattern-library", os.path.join(REPO_ROOT, knowledge["patterns"], "*.md")),
+        ("bottleneck-patterns", os.path.join(REPO_ROOT, knowledge["bottlenecks"])),
+        (
+            "algorithm-candidates",
+            os.path.join(REPO_ROOT, knowledge["algorithm_candidates"]),
         ),
-    ),
-    (
-        "bottleneck-patterns",
-        os.path.join(
-            REPO_ROOT,
-            ".agents",
-            "skills",
-            "tilelang-op-optimize",
-            "references",
-            "bottleneck-patterns.md",
-        ),
-    ),
-    (
-        "algorithm-candidates",
-        os.path.join(
-            REPO_ROOT,
-            ".agents",
-            "skills",
-            "tilelang-op-design",
-            "references",
-            "algorithm-candidates.md",
-        ),
-    ),
-    (
-        "capability-gaps",
-        os.path.join(REPO_ROOT, ".agents", "evolution", "capability-gaps.md"),
-    ),
-    ("queue", os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md")),
-]
+        ("capability-gaps", os.path.join(REPO_ROOT, knowledge["capability_gaps"])),
+        ("queue", os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md")),
+    ]
+
+
 LOG_PATH = os.path.join(REPO_ROOT, ".agents", "evolution", "kb_search_log.jsonl")
 
 BM25_K1 = 1.5
@@ -110,6 +89,7 @@ def parse_frontmatter_entries(path: str, source: str) -> list:
                 "title": title[:120],
                 "path": rel,
                 "body": body,
+                "device": fm.get("device", ""),
                 "facets": {
                     k: fm.get(k, "")
                     for k in ("kind", "family", "apis", "dtype", "status", "repro")
@@ -146,7 +126,7 @@ def parse_heading_entries(path: str, source: str, pattern: str) -> list:
 
 def build_index() -> list:
     entries = []
-    for source, pattern in SOURCES:
+    for source, pattern in knowledge_sources():
         for path in sorted(glob.glob(pattern)):
             if not os.path.isfile(path):
                 continue
@@ -233,9 +213,32 @@ def main() -> int:
     ap.add_argument(
         "--index", action="store_true", help="dump entry inventory and exit"
     )
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd())
+
+
+def run(args) -> int:
 
     entries = build_index()
+    platform = get_platform()
+    if platform.hardware is not None:
+        eligible = {entry["source"] for entry in platform.measurements()}
+        device_names = {
+            name.lower().removeprefix("ascend")
+            for name in platform.hardware["device_names"]
+        }
+        entries = [
+            entry
+            for entry in entries
+            if not entry.get("device")
+            or entry["device"].lower().removeprefix("ascend") in device_names
+        ]
+        for entry in entries:
+            if entry["facets"].get("kind") == "constant":
+                entry["facets"]["cost_use"] = (
+                    "check_workload" if entry["id"] in eligible else "reference_only"
+                )
     if args.index:
         inv = [
             {"source": e["source"], "id": e["id"], "path": e["path"]} for e in entries

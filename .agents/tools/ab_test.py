@@ -20,8 +20,6 @@ as JSON), 2 on usage/environment error, 1 on measurement failure.
 """
 
 import argparse
-import csv
-import glob
 import json
 import math
 import os
@@ -30,9 +28,13 @@ import statistics
 import subprocess
 import sys
 
-DEFAULT_METRICS = (
-    "BasicInfo,PipeUtilization,ArithmeticUtilization,Memory,MemoryUB,"
-    "MemoryL0,L2Cache,ResourceConflictRatio"
+from pathlib import Path
+
+from platform_context import (
+    add_platform_args,
+    get_adapter,
+    get_platform,
+    run_with_platform,
 )
 
 
@@ -48,12 +50,9 @@ def run_msprof(
     """Run one msprof op measurement; return the list of Task Durations."""
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    msprof_prefix = (
-        f"msprof op --kernel-name={kernel} --output={out_dir} "
-        f"--launch-count={launch_count} --warm-up={warm_up} --dump=off "
-        f"--aic-metrics={DEFAULT_METRICS}"
-    )
-    shell_cmd = f"{msprof_prefix} {cmd}"
+    adapter = get_adapter()
+    prefix = " ".join(adapter.profiler_args(kernel, out_dir, launch_count, warm_up))
+    shell_cmd = f"{prefix} {cmd}"
     with open(log_path, "w") as log:
         log.write(f"# {shell_cmd}\n")
         log.flush()
@@ -67,15 +66,10 @@ def run_msprof(
         log.write(proc.stdout)
         log.write(proc.stderr)
     if proc.returncode != 0:
-        raise RuntimeError(f"msprof run failed (rc={proc.returncode}), see {log_path}")
-    rows = []
-    for path in sorted(
-        glob.glob(os.path.join(out_dir, "OPPROF_*", "*", "*", "OpBasicInfo_*.csv"))
-    ):
-        with open(path) as f:
-            for row in csv.DictReader(f):
-                if row.get("Task Duration(us)"):
-                    rows.append(float(row["Task Duration(us)"]))
+        raise RuntimeError(
+            f"{adapter.profiler} run failed (rc={proc.returncode}), see {log_path}"
+        )
+    rows = adapter.profile_samples(out_dir)
     if not rows:
         raise RuntimeError(f"no OpBasicInfo rows under {out_dir}")
     return rows
@@ -117,10 +111,15 @@ def main() -> int:
         help="noise threshold for the tie/adopt verdict",
     )
     ap.add_argument("--timeout", type=int, default=900)
+    add_platform_args(ap)
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd(), verify=True)
 
-    if shutil.which("msprof") is None:
-        print(json.dumps({"error": "msprof not found in PATH"}))
+
+def run(args) -> int:
+
+    if shutil.which(get_adapter().profiler) is None:
+        print(json.dumps({"error": f"{get_adapter().profiler} not found in PATH"}))
         return 2
 
     runs = {"A": [], "B": []}
@@ -193,6 +192,7 @@ def main() -> int:
         "direction_consistent": consistent,
         "noise_threshold": args.noise,
         "verdict": verdict,
+        **get_platform().evidence(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

@@ -42,7 +42,7 @@ def run(args: list[str], repo_root: str) -> tuple[int, dict]:
 
 CORE_SPLIT = """# core-split
 FINGERPRINT-CORESPLIT 使其接近物理核数整数倍（按实查核数取 1×/2×/3×）。
-FINGERPRINT-CORESPLIT2 禁止以文档假设或经验值（如 20~24）替代实查。
+FINGERPRINT-CORESPLIT2 按任务平台规则实查目标设备物理核数。
 """
 
 ALGO = """# algorithm research
@@ -75,7 +75,7 @@ SIGNAL_REGISTRY = """# signal registry
 developer mode 枚举：`first_impl` / `retry_impl` / `precision_fix`。
 optimizer mode 枚举：`full`（默认，完整调优流程） / `precision_fix`（仅精度回归修复）。
 perf_records.jsonl 字段契约：
-{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, msprof_raw_path, timestamp}
+{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, <平台原始采集字段>, timestamp}
 """
 
 CONDUCTOR_MAIN = """# conductor main

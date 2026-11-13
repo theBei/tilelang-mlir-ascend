@@ -49,7 +49,9 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 ### Phase 0：读取上下文
 
 1. Read conductor 传入的全部任务工件（harness 场景逐函数读取，并读取 op 级 `SESSION_TIMING_ANALYSIS.md`；optimize 场景无 `RETROSPECTIVE.md`，复盘在 `opt_log.md` 的 `Skill Retrospective` 章节）。
-2. Read pattern-library [INDEX.md](../tilelang-op-optimize/references/pattern-library/INDEX.md)（条目索引 + 预算现状——K-2 渐进披露后不再全文读单文件；本次蒸馏候选涉及的条目按索引精读对应主题文件，可用 `python3 .agents/tools/kb_search.py "<候选主题>"` 辅助查重定位）。
+2. 读取任务平台 `knowledge.patterns` 下的 `INDEX.md`（条目索引 + 预算现状——K-2 渐进披露后不再全文读单文件；本次蒸馏候选涉及的条目按索引精读对应主题文件，可用 `python3 .agents/tools/kb_search.py "<候选主题>"` 辅助查重定位）。
+   有正式组合测量时，按任务上下文登记型号、工具链、实际版本、指标、数值、单位、负载和来源；历史证据的适用条件沿用原记录。
+
 3. Read `.agents/evolution/queue.md` 全部条目（查重基准 + Tier 1 确认计数基准）。
 4. Read [references/distillation-rules.md](references/distillation-rules.md)（信号→价值点映射、分类判定树、证据三件套、防过拟合红线）与 [references/merge-policy.md](references/merge-policy.md)（分级治理矩阵、五种 delta、冲突消解、预算与 consolidate、git 快照规则）。
 
@@ -122,7 +124,7 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 
 1. **先查重再合入**——任何 add 前必须 Grep 目标文件；同主题已有条目时用 update。
 2. **证据三件套缺一降级（ED-A 语义）**——D 类无 provenance/无版本戳/无 repro → Tier 1 入队而非直接合入（缺 repro 标 `repro-missing`，待同族任务补）。
-3. **不产生新数据**——evolver 只整理任务内已有实测数据，不自己跑 msprof/pytest；数据真实性由来源任务的工件负责。
+3. **不产生新数据**——evolver 只整理任务内已有实测数据，不自行采集性能或运行测试；数据真实性由来源任务的工件负责。
 4. **失败任务优先蒸馏**——`phase=FAILED` 的任务（BLOCKED_* 根因）往往比成功任务包含更高密度的 D/P 价值点。
 5. **Transferable Lessons 的归宿**——session 内教训（RETROSPECTIVE.md 的 Transferable Lessons 小节）中具有跨任务普适性的条目转为 P/D 候选；仅本任务有效的（如特定函数的 UB 预算笔误）不入库。
 6. **不越权**——Tier 2 提案在 distill 模式下绝不落盘流程文件；conductor / 用户未批准的任何 R 类修改都不执行。

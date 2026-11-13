@@ -347,6 +347,10 @@ def op_dir(repo: Path, project: str = "proj", op: str = "t") -> Path:
 
 
 def sc(*argv, now: str | None = FIXED_NOW, cwd: Path | None = None):
+    if (argv[:1] == ("init",) or argv[:2] == ("migration", "init")) and not any(
+        arg in argv for arg in ("--hardware", "--toolchain", "--task-dir")
+    ):
+        argv = (*argv, "--legacy-platform")
     env = dict(os.environ)
     if now:
         env["STATECTL_NOW"] = now

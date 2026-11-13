@@ -37,7 +37,7 @@ INIT --> DESIGN --> REVIEW --> DEVELOP --> TUNING(可选) --> DONE
 | 数学公式 / 计算语义 | 用户给出公式 / 标准 API 名（如"参考 PyTorch 的 F.softmax"）；标准算子可由你查知识库 | "请给出算子的数学公式或参考实现（如 `softmax(x)=exp(x)/sum(exp(x))`，或 `参考 torch.nn.functional.softmax`）" |
 | 输入张量规格 | **shape + dtype 都明确**（shape 可含动态维度 `B`、`N` 等符号，但需明确哪些动态）。该 shape 作为 L0 代表性规则 shape；更全面的不规则/异常/边界覆盖由 Stage 1 的 L0 计划与 Stage 3 的扩展自动产生 | "请告诉我输入张量的 shape 和 dtype（如 `[B, N] float16`，其中 B 是动态、N 是静态）" |
 | 输出张量规格 | shape + dtype 都明确；若与输入一致可允许"同输入"作为回答 | "请告诉我输出张量的 shape 和 dtype（与输入相同时回答`同输入`即可）" |
-| **编程模式偏好** ⭐ | 用户明确写 `Developer` / `Expert` / `混合` 三者之一（写入 `op_requirements` 前归一化为小写枚举 `developer` / `expert` / `hybrid`——枚举唯一出处见 `_shared/standards/signal-registry.md` §3） | "请选择编程模式：Developer（自动化）/ Expert（手动控制 L1/UB/L0）/ 混合（关键路径用 Expert）。**这条不能默认填，必须由你选择**" |
+| **编程模式偏好** ⭐ | 用户从任务平台的 `programming_modes.choices` 中明确选择；写入 `op_requirements` 前归一为所选项的键（字段契约见 `_shared/standards/signal-registry.md` §3） | "请从以下平台支持的编程模式中选择（展开 `programming_modes.choices` 的选项）。**这条不能默认填，必须由你选择**" |
 
 ### 预检执行规则
 
@@ -58,7 +58,7 @@ INIT --> DESIGN --> REVIEW --> DEVELOP --> TUNING(可选) --> DONE
 
 ## 4. 传给 designer 的字段格式
 
-5 个字段齐全后汇总成结构化对象，作为调度 `@tilelang-op-designer`（`mode=first_design`）的 prompt 输入；同时写入临时区便于失败重试时不重复问用户；designer 调用 `tilelang-op-design` skill 时带上这些字段，skill 看到字段齐全后跳过提问环节，直接走技术约束检测和 design 生成。
+5 个字段齐全后汇总成结构化对象，作为调度 `@tilelang-op-designer`（`mode=first_design`）的 prompt 输入；同时写入临时区便于失败重试时不重复问用户；designer 调用 平台配置 `stage_skills.design` 指定的技能 时带上这些字段，skill 看到字段齐全后跳过提问环节，直接走技术约束检测和 design 生成。
 
 ```yaml
 op_requirements:
@@ -72,7 +72,7 @@ op_requirements:
   output_spec:
     shape: <如 [B, N] 或 same_as_input>
     dtype: <如 float16 或 same_as_input>
-  programming_mode: developer | expert | hybrid   # 用户回答 Developer/Expert/混合 后归一化（signal-registry.md §3）
+  programming_mode: <所选编程模式在 programming_modes.choices 中的键>
   # ⬇ 迁移任务必填（scenario=migration，字段语义见 conductor-scenarios/migration.md）
   source_op_path: <源算子文件路径；plain=用户给出，harness=.migration_meta.json 中该函数的 GPU 源码路径>
   source_output_shape: <源算子输出 shape，如 (M, N)；无法从源码推断时由 designer 解读后回填并标注依据>

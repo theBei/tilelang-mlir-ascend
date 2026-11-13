@@ -25,7 +25,7 @@ INIT --> SCAFFOLD --> (DEV_LOOP: 每函数 DESIGN --> REVIEW --> DEVELOP) --> IN
 
 ## 3. Stage 0 — 迁移脚手架 Agent（`@tileops-scaffolder`，仅 harness）
 
-- **触发条件**：场景路由判定 `migration` + `migration_mode=harness`，状态 `init` 后
+- **触发条件**：场景路由判定 `migration` + `migration_mode=harness`。先在 op 级目录用 `statectl init --stage-plan 0` 和同一平台选择建立脚手架状态，再执行 `statectl start 0`
 - **输入**：`op_name`、`gpu_repo_root`、`family`（可选，默认 reduction）
 - **输出/交付件**：TileOPs 7 文件脚手架（Tier 1 结构校验通过）+ `examples/TileOPs/tileops/kernels/{family}/{op_slug}/.migration_meta.json` + 逐函数迁移 prompt
 - **完成信号**：`SCAFFOLD_COMPLETED`（携带 meta_path、extracted_functions、migration_prompts）
@@ -52,11 +52,11 @@ INIT --> SCAFFOLD --> (DEV_LOOP: 每函数 DESIGN --> REVIEW --> DEVELOP) --> IN
 }
 ```
 
-- 聚合状态的迁移与函数状态更新一律经 `statectl migration` 命令组执行：`migration init --op-slug S --family F --meta-path P --functions f1 f2`（Stage 0 完成、解析函数列表后创建，phase=DEV_LOOP）→ 逐函数 `migration func {name} --status pending|in_progress|done|failed` → 全函数 done 后 `migration phase --phase INTEGRATE` → 集成结果 `migration integrate --status pass|fail`（fail 超 2 次自动 `BLOCKED_INTEGRATION`）→ pass 后 `migration phase --phase DONE`。Stage 0/5 的工件门禁用 `statectl gate 0 --meta ...` / `statectl gate 5 --migration-dir ...` 单独执行。
+- 聚合状态的迁移与函数状态更新一律经 `statectl migration` 命令组执行：`migration init --op-slug S --family F --meta-path P --functions f1 f2 --hardware H --toolchain T`（Stage 0 完成、解析函数列表后创建，phase=DEV_LOOP）→ 逐函数 `statectl init --task-dir <聚合状态目录> ...` 继承选择 → `migration func {name} --status pending|in_progress|done|failed` → 全函数 done 后 `migration phase --phase INTEGRATE` → 集成结果 `migration integrate --status pass|fail`（fail 超 2 次自动 `BLOCKED_INTEGRATION`）→ pass 后 `migration phase --phase DONE`。Stage 0 完成命令为 `statectl complete 0 --dir <op级目录> --meta <meta_path>`。Stage 5 工件门禁用 `statectl gate 5 --migration-dir <op级目录>`；门禁通过后再写聚合状态的 `migration integrate --status pass` 和 `migration phase --phase DONE`。
 
 ## 5. Stage 3 通过后的分支
 
-`[PRECISION_PASS]` 且二次校验通过 → `migration func {func} --status done` → 还有未完成函数则对其 `start_stage(1)` 继续 DEV_LOOP；全部函数 done → `migration phase --phase INTEGRATE` → `start_stage(5)` 调度 integrator。
+`[PRECISION_PASS]` 且二次校验通过 → `migration func {func} --status done` → 还有未完成函数则对其 `start_stage(1)` 继续 DEV_LOOP；全部函数 done → `migration phase --phase INTEGRATE` → 读取聚合任务的平台上下文并调度 integrator。
 
 ## 6. Stage 4 跳过
 
@@ -67,10 +67,10 @@ harness 迁移**不询问调优、不进入 Stage 4**（bench 由 Stage 5 仅报
 - **触发条件**：全部提取函数 Stage 3 通过且二次校验完成（`.migration_state.json` 的 `functions` 全部 `done`）
 - **输入**：`meta_path`、`op_name`、`op_slug`、`family`、`attempt_index`、`max_attempts`（默认 5）
 - **输出/交付件**：`tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`（集成 kernel 文件 + 每函数 `{func}_DESIGN.md` 设计文档快照（源自 `examples/{op_slug}/{func}/DESIGN.md`）+ 聚合 `__init__.py` + `integration_log.md` + `integration_report.json`），wrapper import 已改写为 baseline/perf_opt 双 import 切换块（baseline 默认激活，perf_opt 注释占位）；另有本次单算子 TileOPs `run.json`、`report.md`、`report.html`
-- **完成信号**：三态之一：`INTEGRATE_COMPLETED`（从 `examples/TileOPs/` 运行 `python -m tileops.reporting.cli run --op {op_name} --prof-mode msprof`；本次 report 全量正确性通过、benchmark 已运行并报告；report 为 `partial` 时明确披露 benchmark 失败/无效但不阻断集成）/ `[INTEGRATE_FAIL]` / `[DESIGN_ERROR]`
+- **完成信号**：三态之一：`INTEGRATE_COMPLETED`（运行平台规则定义的单算子报告入口；本次 report 全量正确性通过、benchmark 已运行并报告；report 为 `partial` 时明确披露 benchmark 失败/无效但不阻断集成）/ `[INTEGRATE_FAIL]` / `[DESIGN_ERROR]`
 - **编排层动作**：
-  - `INTEGRATE_COMPLETED` → `complete_stage(5)` → `phase=DONE`（harness 迁移不询问调优；最终报告附本次 report 路径、bench 状态与有效数值，以及"可另起 optimize 场景"提示）
-  - `[INTEGRATE_FAIL]` → `fail_stage(5)` → 重新调度 integrator 传入 `last_failure_summary`（`stage_retry_count[5]` 上限 2；integrator 内部已有 5 次调试闭环，两级预算独立）；超限 → `phase=FAILED`、`failure_reason=BLOCKED_INTEGRATION`
+  - `INTEGRATE_COMPLETED` → Stage 5 门禁 → 聚合状态登记集成通过 → `phase=DONE`（harness 迁移不询问调优；最终报告附本次 report 路径、bench 状态与有效数值，以及"可另起 optimize 场景"提示）
+  - `[INTEGRATE_FAIL]` → `statectl migration integrate --status fail` → 重新调度 integrator 传入 `last_failure_summary`（聚合状态最多允许 2 次重试；integrator 内部已有 5 次调试闭环，两级预算独立）；超限 → `phase=FAILED`、`failure_reason=BLOCKED_INTEGRATION`
   - `[DESIGN_ERROR]` → 设计修订循环路径 B：对**失败根因指向的函数**备份其 `DESIGN.md` → `retry_count += 1` → 该函数重跑 Stage 1→2→3 → 通过后**重新执行 Stage 5**（全量重集成，集成脚本幂等）
 - **Stage 5 终态后置钩子**：Stage 5 进入 `DONE`，或因 Stage 5 重试耗尽进入 `FAILED` 后，必须先按主文件「自进化机制」的 Session 耗时分析 prompt 生成 `examples/{op_slug}/SESSION_TIMING_ANALYSIS.md`，再重新渲染报告并开始终态蒸馏；该钩子不是新 Stage，不修改 Stage 状态。
 
@@ -108,7 +108,7 @@ opencode export <session_id> > examples/{op_slug}/full.json
 ```
 
 5. `breakdown` 按各阶段实际开始时间升序排列，只保留对理解总耗时有用的主要环节，避免把报告扩展成逐事件流水账；每项 `detail` 写明该阶段的开始/结束时间和日志证据摘要。减少耗时方案留在 Markdown 正文，报告只展示总耗时和上述时间明细。
-6. Markdown 写入成功后，从集成包的 `integration_report.json` 读取本次 `run.json` 仓库相对路径；文件有效时从 `examples/TileOPs/` 执行 `python -m tileops.reporting.cli render {run_json} --with-session-timing`，原地更新该 run 的 `run.json` / `report.md` / `report.html`，**不得重跑 correctness 或 benchmark**。`run.json` 缺失或无效时不伪造报告，最终汇报披露无法重渲染，然后仍将 Markdown 交给 evolver。
+6. Markdown 写入成功后，从集成包的 `integration_report.json` 读取本次 `run.json` 仓库相对路径；文件有效时按任务平台规则执行会话耗时报告渲染命令，原地更新该 run 的 `run.json` / `report.md` / `report.html`，**不得重跑 correctness 或 benchmark**。`run.json` 缺失或无效时不伪造报告，最终汇报披露无法重渲染，然后仍将 Markdown 交给 evolver。
 
 ## 8. harness 设计修订特例
 

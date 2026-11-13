@@ -58,8 +58,8 @@ description: "对 Stage 1 产出的算子设计文档（DESIGN.md）进行风险
 | 检查项 | 通过标准 |
 |--------|----------|
 | 搬运路径完整 | §4.4 给出完整 GM → L1/UB → L0 路径，无 GM→L0 直连等越级路径 |
-| UB 预算 | §4.5 中间缓冲区总和不超过目标平台 UB 容量（A2/A3 = 192KB） |
-| L0C 容量 | Cube 类算子 `block_M × block_N × sizeof(accum)` ≤ 128KB |
+| UB 预算 | §4.5 中间缓冲区总和不超过任务平台配置的 UB 预算 |
+| L0C 容量 | Cube 类算子 `block_M × block_N × sizeof(accum)` ≤ 任务平台配置的 L0C 预算 |
 | Buffer 层级标注 | 每个 buffer 标注存储层级（UB/L1/L0A/L0B/L0C） |
 
 ### 维度 3：Tiling 策略（阻塞级；可机检子集：`design_calc_check.py` core_split 逻辑核数算术复算）
@@ -69,7 +69,7 @@ description: "对 Stage 1 产出的算子设计文档（DESIGN.md）进行风险
 | Block 划分明确 | §5.2 给出 block_M/block_N 具体值及理由 | — |
 | 对齐约束 | 尾轴对齐满足（fp16 ≥ 16B 等） | — |
 | 非整除处理 | GEMM 类必须含 padding+crop 或动态 block 策略；纯 Vector 若 shape 不被 block 整除也需说明 | — |
-| 分核策略（物理核数适配） | §5 含分核策略三要素（① 逻辑核数计算 / ② 物理核数依据〔`NPUUtils.get().get_aicore_num()` 实查并记录查询代码与返回值〕/ ③ 规模判定与分核方案）；核数与 block 取值自洽——**核对标准**：`.agents/skills/_shared/standards/core-split-strategy.md` §1（检视要点见其 §2.2） | 逻辑核数远超物理核数却无核内串行设计；物理核数非实查（无 NPUUtils 查询记录或使用文档假设/经验值）；启动 21 核类负载不均未处理；核内串行任务数依赖动态 shape |
+| 分核策略（物理核数适配） | §5 含分核策略三要素（① 逻辑核数计算 / ② 物理核数依据〔按平台规则实查并记录查询代码与返回值〕/ ③ 规模判定与分核方案）；核数与 block 取值自洽——**核对标准**：`.agents/skills/_shared/standards/core-split-strategy.md` §1（检视要点见其 §2.2） | 逻辑核数远超物理核数却无核内串行设计；物理核数非实查（无平台规定的查询记录或使用文档假设/经验值）；启动 21 核类负载不均未处理；核内串行任务数依赖动态 shape |
 
 ### 维度 4：技术约束检测（阻塞级）
 
@@ -137,7 +137,7 @@ description: "对 Stage 1 产出的算子设计文档（DESIGN.md）进行风险
 6. **算法调研独立复核（强制）**：Read `tilelang-op-design` skill 的 [references/algorithm-candidates.md](../tilelang-op-design/references/algorithm-candidates.md)（R1/R2 候选表本体，条目含 `known_impl`/`kb_links` 实测指针），按算子族命中行核对 §1.6.0——① 候选覆盖（命中行候选是否全部评估、基线是否在表）；② 负向断言（"无在线变体/无化简公式/无更低复杂度算法"）逐条复核（对照候选表、源码证据、同类案例）；③ 复杂度表独立复算（重点：中间缓冲的 GM 往返是否漏计、口径是否自洽）；④ 亲和性淘汰依据核对（与弃选论证查证同口径；容量/带宽淘汰引用 constants.md 条目）；⑤ 互联网来源核对（若 §1.6.0 引用了互联网候选）：来源记录（URL/论文/仓库 + 访问日期）齐全，「有候选无来源记录」按证据缺失处理（同弃选论证查证口径）；不要求重新访问验证内容真实性。复核发现矛盾或漏候选 → 维度 8 fail 并附证据（候选表条目 / 源码语句 / 案例路径）。
 7. **机械复核（D-1/D-5，强制——可机检部分不由 LLM 复核替代）**：
    - **重跑等价性验证**（`DESIGN.md` §1.6.1 含采纳优化项时）：`python examples/{project}/{op}/verify_equiv.py`——执行结果须与 §1.6.1 内嵌结果表一致且全部 `EQUIV_PASS`；脚本缺失、执行失败或与内嵌表不一致 → 维度 8 fail（等价性机器验证失效）；
-   - **算术复算**：`python3 .agents/tools/design_calc_check.py --design <path>`——逐项消费其 JSON 输出：`ub/l1/l0c_budget` fail → 维度 2 fail（VP-2026-0009 混合字节口径类错误由此拦截）；`core_split` fail → 维度 3 fail；`r3_metrics` fail → 维度 8 fail；`skip` 项（无法机械解析）转为人工复核并在维度内注明"机械跳过，人工已核"；
+   - **算术复算**：`python3 .agents/tools/design_calc_check.py --design <path> --task-dir <任务目录>`——逐项消费其 JSON 输出：`ub/l1/l0c_budget` fail → 维度 2 fail（VP-2026-0009 混合字节口径类错误由此拦截）；`core_split` fail → 维度 3 fail；`r3_metrics` fail → 维度 8 fail；`skip` 项（无法机械解析）转为人工复核并在维度内注明"机械跳过，人工已核"；
    - 两项机械结果摘要（含 skip 项）附入 REVIEW.md「机械复核」段——与维度 8 的"独立推演"互补而非替代。
 
 ### Phase 2：逐维度检视
