@@ -34,6 +34,7 @@ import time
 
 from pathlib import Path
 
+from kb_stale_check import check_entries, current_stamp
 from platform_context import add_platform_args, get_platform, run_with_platform
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
@@ -45,7 +46,6 @@ def repro_dir():
     )
 
 
-STALE_CHECK = os.path.join(REPO_ROOT, ".agents", "tools", "kb_stale_check.py")
 DEFAULT_TIMEOUT = 900
 
 
@@ -54,29 +54,12 @@ def discover() -> list:
 
 
 def stale_ids() -> set:
-    """Entry ids listed as stale by kb_stale_check (JSON output)."""
-    platform = get_platform()
-    command = [sys.executable, STALE_CHECK, "--json"]
-    if platform.hardware is not None:
-        command += [
-            "--hardware",
-            platform.selection["hardware_id"],
-            "--toolchain",
-            platform.selection["toolchain_id"],
-            "--stamp",
-            platform.runtime["toolchain_stamp"]["raw"],
-        ]
+    """Entry IDs listed as stale for the current platform."""
     try:
-        proc = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        data = json.loads(proc.stdout)
-        return {e["id"] for e in data.get("stale", [])}
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+        report = check_entries(current_stamp())
+    except (OSError, UnicodeError):
         return set()
+    return {entry["id"] for entry in report["stale"]}
 
 
 def select(files: list, flt: str) -> list:

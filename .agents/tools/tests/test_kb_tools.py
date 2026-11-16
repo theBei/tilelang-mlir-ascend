@@ -163,3 +163,40 @@ def test_kb_stale_check_reports_and_never_modifies():
     data = json.loads(out)
     assert "current_stamp" in data and "stale" in data
     # advisory tool: exit 0 even with stale entries
+
+
+
+def test_stale_check_and_runner_share_saved_commit(tmp_path, monkeypatch, capsys):
+    from argparse import Namespace
+    from dataclasses import replace
+
+    monkeypatch.syspath_prepend(str(TOOLS))
+    import kb_stale_check
+    import repro_runner
+    from platform_context import resolve_platform, using_platform
+
+    topic = tmp_path / "topic.md"
+    topic.write_text(
+        "---\nid: KB-matching\ntoolchain: tilelang 0.1.2+abcdef123\n---\n"
+        "---\nid: KB-different\ntoolchain: tilelang 0.1.2+fedcba987\n---\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(kb_stale_check, "knowledge_globs", lambda: [str(topic)])
+    platform = resolve_platform("ascend-910b3", "npuir")
+    stamp = {
+        "raw": "tilelang 0.1.2+abcdef123 + CANN 9.0.0",
+        "tilelang_commit": None,
+    }
+    args = Namespace(stamp=None, include_unknown=True, json=True)
+
+    for commit, stale, unknown_count in (
+        (None, set(), 2),
+        ("abcdef1234", {"KB-different"}, 0),
+    ):
+        runtime = {"toolchain_stamp": {**stamp, "tilelang_commit": commit}}
+        with using_platform(replace(platform, runtime=runtime)):
+            assert kb_stale_check.run(args) == 0
+            report = json.loads(capsys.readouterr().out)
+            assert report["unknown_count"] == unknown_count
+            assert {entry["id"] for entry in report["stale"]} == stale
+            assert repro_runner.stale_ids() == stale

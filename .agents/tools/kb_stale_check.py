@@ -7,11 +7,9 @@ modifies library files -- it only reports.
 Current stamp detection is delegated to the platform adapter. Override it
 with --stamp when checking a recorded toolchain.
 
-Comparison: an entry is "stale-candidate" when both its toolchain stamp and
-the current stamp parse to a tilelang commit (7-40 hex) or version tuple and
-they differ; entries whose stamp cannot be parsed are listed as "unknown"
-(manual check). Only hex-commit mismatches are reported by default
-(--include-unknown to also list unparsable ones).
+An entry is stale when its TileLang commit and the current commit are known
+and differ. If either commit is unavailable, the entry is unknown and needs
+manual review. Use --include-unknown to list those entries.
 
 Usage:
   python3 .agents/tools/kb_stale_check.py [--stamp "tilelang X + toolchain Y"]
@@ -33,7 +31,6 @@ from pathlib import Path
 
 from platform_context import (
     add_platform_args,
-    get_adapter,
     get_platform,
     run_with_platform,
 )
@@ -50,12 +47,13 @@ def knowledge_globs():
 
 
 COMMIT_RE = re.compile(r"\b([0-9a-f]{7,40})\b")
-VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 
 
-def detect_current_stamp() -> dict:
-    return get_adapter().toolchain_stamp(
-        REPO_ROOT, active=get_platform().hardware is not None
+def current_stamp() -> dict:
+    platform = get_platform()
+    recorded = (platform.runtime or {}).get("toolchain_stamp")
+    return recorded or platform.adapter.toolchain_stamp(
+        REPO_ROOT, active=platform.hardware is not None
     )
 
 
@@ -97,47 +95,19 @@ def parse_entries(path: str) -> list:
 
 
 def classify(entry_stamp: str, current: dict) -> str:
-    e_commits = COMMIT_RE.findall(entry_stamp or "")
-    if e_commits:
-        cur = current.get("tilelang_commit")
-        if (
-            cur
-            and cur not in e_commits
-            and not any(c.startswith(cur) or cur.startswith(c) for c in e_commits)
-        ):
-            return "stale"
+    entry_commits = COMMIT_RE.findall(entry_stamp or "")
+    current_commit = current.get("tilelang_commit")
+    if not entry_commits or not current_commit:
+        return "unknown"
+    if any(
+        commit.startswith(current_commit) or current_commit.startswith(commit)
+        for commit in entry_commits
+    ):
         return "fresh"
-    return "unknown"
+    return "stale"
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--stamp",
-        default=None,
-        help="override current stamp, e.g. 'tilelang 0.1.2+abcdef123 + CANN 8.5.0'",
-    )
-    ap.add_argument("--include-unknown", action="store_true")
-    ap.add_argument("--json", action="store_true")
-    add_platform_args(ap)
-    args = ap.parse_args()
-    return run_with_platform(ap, args, run, Path.cwd())
-
-
-def run(args) -> int:
-
-    if args.stamp:
-        current = {
-            "raw": args.stamp,
-            "tilelang_commit": (COMMIT_RE.findall(args.stamp) or [None])[0],
-            "cann": None,
-            "tilelang": None,
-        }
-    else:
-        current = (get_platform().runtime or {}).get(
-            "toolchain_stamp"
-        ) or detect_current_stamp()
-
+def check_entries(current: dict, *, include_unknown: bool = False) -> dict:
     stale, unknown = [], []
     for pattern in knowledge_globs():
         for path in sorted(glob.glob(pattern)):
@@ -160,17 +130,46 @@ def run(args) -> int:
         "re-verify repro-backed entries via: "
         "repro_runner.py --filter stale",
     }
-    if args.include_unknown:
+    if include_unknown:
         report["unknown"] = unknown
+    return report
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--stamp",
+        default=None,
+        help="override current stamp, e.g. 'tilelang 0.1.2+abcdef123 + CANN 8.5.0'",
+    )
+    ap.add_argument("--include-unknown", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    add_platform_args(ap)
+    args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd())
+
+
+def run(args) -> int:
+    if args.stamp:
+        current = {
+            "raw": args.stamp,
+            "tilelang_commit": (COMMIT_RE.findall(args.stamp) or [None])[0],
+            "cann": None,
+            "tilelang": None,
+        }
+    else:
+        current = current_stamp()
+
+    report = check_entries(current, include_unknown=args.include_unknown)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(f"current stamp: {current['raw']}")
-        print(f"stale entries: {len(stale)}")
-        for e in stale:
+        print(f"stale entries: {report['stale_count']}")
+        for e in report["stale"]:
             print(f"  [stale] {e['id']}  ({e['path']})  stamp: {e['toolchain'][:80]}")
         print(
-            f"unknown (unparsable stamp, manual check): {len(unknown)} "
+            f"unknown (missing or unparsable commit): {report['unknown_count']} "
             f"(--include-unknown to list)"
         )
     return 0
