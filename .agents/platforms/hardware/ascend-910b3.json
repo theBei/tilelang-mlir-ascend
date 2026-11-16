@@ -4,8 +4,12 @@
   "device_names": [
     "Ascend910B3"
   ],
-  "capacity_bytes": {},
-  "capacity_source": null,
+  "capacity_bytes": {
+    "UB": 196608,
+    "L1": 524288,
+    "L0C": 131072
+  },
+  "capacity_source": "CANN 9.0.0 platform_config/Ascend910B3.ini [AICoreSpec]; SoC verified on Cannlab, 2026-11-16",
   "observed_cores": {
     "cube": 20,
     "vector": 40

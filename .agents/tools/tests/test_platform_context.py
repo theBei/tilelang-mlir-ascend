@@ -30,7 +30,6 @@ def test_same_toolchain_uses_model_specific_budget():
     ) == b3.adapter.profiler_args("main", "output", 15, 5)
     design = "## 4.5 内存\n**UB**\n| buffer | 128KB |\n"
     assert check_ub_budget(design, b2c.design_budget())[0]["status"] == "pass"
-    assert check_ub_budget(design, b3.design_budget())[0]["status"] == "skip"
     assert b3.design_budget()["ub_inflation"] is None
     assert pc.resolve_platform(state={}).design_budget()["ub_inflation"] == 1.7
 
@@ -148,12 +147,10 @@ def test_migration_children_inherit_selection(tmp_path):
     assert saved["hardware_id"] == aggregate["hardware_id"] == "ascend-910b3"
     assert saved["toolchain_id"] == aggregate["toolchain_id"] == "npuir"
     assert saved["platform_config"] == aggregate["platform_config"]
-    assert (
-        sc("platform", "--task-dir", str(child))[1]["platform"]["design_budget"][
-            "capacity_bytes"
-        ]
-        == {}
-    )
+    code, result = sc("platform", "--task-dir", str(child))
+    assert code == 0, result
+    assert result["platform"]["hardware_id"] == saved["hardware_id"]
+    assert result["platform"]["toolchain_id"] == saved["toolchain_id"]
     assert (
         sc("platform", "--task-dir", str(child), "--hardware", "ascend-910b2c")[0] == 1
     )
