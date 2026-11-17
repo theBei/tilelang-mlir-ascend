@@ -42,14 +42,17 @@ class NpuirToolchain(ToolchainAdapter):
     def has_matrix_path(self, design: str) -> bool:
         return bool(
             re.search(
-                r"""T\.gemm|load_nd2nz|store_fixpipe|Scope\(\s*["']Cube""", design
+                r"^[ \t]*(?:(?:T\.gemm|(?:T\.)?(?:load_nd2nz|store_fixpipe))[ \t]*\("
+                r"""|(?:with[ \t]+)?(?:T\.)?Scope\(\s*["']Cube["']\s*\))""",
+                design,
+                re.MULTILINE,
             )
         )
 
     def matrix_path_required_message(self) -> str:
         return (
-            "no affirmative Cube-path API (T.gemm/load_nd2nz/"
-            "store_fixpipe/Scope(Cube)) in this design"
+            "no Cube-path call (T.gemm/load_nd2nz/store_fixpipe/"
+            "Scope(Cube)) found in the design pseudocode"
         )
 
     def design_modes(self) -> tuple[str, str]:

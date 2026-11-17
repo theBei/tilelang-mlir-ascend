@@ -172,7 +172,13 @@ def check_ub_budget(text: str, budget=None) -> dict:
 
 def check_l0c_budget(text: str, budget=None) -> dict:
     adapter = get_adapter()
-    if not adapter.has_matrix_path(text):
+    section = re.search(
+        r"^#{2,6}[ \t]+3\.3\.?[ \t]+[^\n]*\n(.*?)(?=^#{2,6}[ \t]+|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    pseudocode = section.group(1) if section else text
+    if not adapter.has_matrix_path(pseudocode):
         return {
             "check": "l0c_budget",
             "status": "skip",
@@ -183,10 +189,10 @@ def check_l0c_budget(text: str, budget=None) -> dict:
     level, dtype = accumulator["level"], accumulator["dtype"]
     sec = _section(text, "Tiling") or text
     bm = bn = None
-    m = re.search(r"(?:block_?[MN]|bm)\s*[=×x*]\s*(\d+)", sec, re.I)
+    m = re.search(r"\b(?:block_?M|bm)\s*[=×x*]\s*(\d+)", sec, re.I)
     if m:
         bm = int(m.group(1))
-    m = re.search(r"(?:block_?[NM]|bn)\s*[=×x*]\s*(\d+)", sec, re.I)
+    m = re.search(r"\b(?:block_?N|bn)\s*[=×x*]\s*(\d+)", sec, re.I)
     if m:
         bn = int(m.group(1))
     if bm is None or bn is None:
