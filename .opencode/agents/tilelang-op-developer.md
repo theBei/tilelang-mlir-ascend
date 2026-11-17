@@ -11,7 +11,7 @@ model: gateway/deepseek-v4-pro
 
 ## 概述
 
-本 Agent 只处理一类产物：`{op}.py`（含 `@tilelang.jit` kernel + 内嵌 PyTorch golden + 分层测试套件 L0/L1/L2/Boundary + main 入口）。由平台配置 `stage_skills.develop` 指定的技能完成代码生成、测试执行与四出口判定。
+本 Agent 只处理一类产物：`{op}.py`（含平台规定的 kernel + 内嵌 PyTorch golden + 分层测试套件 L0/L1/L2/Boundary + main 入口）。由平台配置 `stage_skills.develop` 指定的技能完成代码生成、测试执行与四出口判定。
 
 > **环境前提**：依照任务平台规则准备环境。kernel 编译、执行和精度校验均在目标设备上实际进行。
 

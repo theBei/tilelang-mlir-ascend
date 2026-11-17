@@ -6,6 +6,8 @@ disable: true
 
 > **适用范围**：`scenario=migration` + `migration_mode=harness`（GPU 仓为 TileOPs 同构工程）。**载入顺序**：先 `conductor-scenarios/migration.md`（公共规则），再本文件。通用骨架（门禁/重试/设计修订/状态写入/恢复/自进化）见主文件 `.opencode/agents/tilelang-op-conductor.md`。
 
+> Stage 0 脚手架、Stage 5 集成路径、报告格式及验收条件以任务平台规则为准。下文具体路径和报告格式以既有 NPUIR 为例。
+
 ## 1. 状态机与阶段计划
 
 `stage_plan=[0, (1→2→3)×N函数, 5]`（Stage 4 跳过）：

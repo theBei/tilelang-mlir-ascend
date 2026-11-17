@@ -426,6 +426,7 @@ def run_gate_checks(stage, ctx, meta_path, migration_dir):
                 with open(meta_path, encoding="utf-8") as fh:
                     meta = json.load(fh)
                 mstate = {
+                    "meta_path": meta_path,
                     "family": meta.get("family"),
                     "op_slug": meta.get("op_slug"),
                     "functions": {f: {} for f in meta.get("extracted_functions") or []},
@@ -1659,6 +1660,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="legacy core query or selected platform probe",
     )
+    sp.add_argument(
+        "--check-environment",
+        action="store_true",
+        help="validate the toolchain without probing the device",
+    )
     sp.set_defaults(func=cmd_platform)
 
     sp = sub.add_parser("migration-mode", help="识别迁移源工程的集成模式")
@@ -1863,10 +1869,16 @@ def cmd_migration_show(args) -> int:
 
 
 def cmd_platform(args) -> int:
+    if args.check_environment and args.toolchain and not (args.hardware or args.task_dir):
+        raise PlatformError(
+            "--check-environment with --toolchain needs --hardware or --task-dir"
+        )
     context = command_platform(args)
     if args.probe and not (args.task_dir or args.hardware or args.toolchain):
         context = resolve_platform(detect=True)
     platform = context.prompt()
+    if args.check_environment:
+        platform["environment"] = context.check_environment()
     if args.probe or args.probe_cores:
         try:
             result = context.probe()

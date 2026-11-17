@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "hardware_id": "ascend-950dt-9582",
+  "device_names": ["Ascend950DT_9582"],
+  "capacity_bytes": {
+    "UB": 253952,
+    "L1": 524288,
+    "L0C": 262144
+  },
+  "capacity_source": "CANN 9.0.0 aarch64-linux/data/platform_config/Ascend950DT_9582.ini [AICoreSpec]",
+  "observed_cores": {
+    "cube": 32,
+    "vector": 64
+  },
+  "core_source": "CANN 9.0.0 Ascend950DT_9582.ini and TileOPs ascend950 toolchain lock"
+}

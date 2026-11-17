@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "toolchain_id": "ascend",
+  "backend": "ascend",
+  "supported_hardware": ["ascend-950dt-9582"],
+  "architecture": "dav-3510",
+  "environment_lock": ".agents/platforms/toolchains/ascend/toolchain.lock.json",
+  "design_rules": {
+    "table_levels": ["UB", "L1", "L0C"],
+    "heading_levels": ["UB", "L1", "L0C"],
+    "inflation_level": "UB",
+    "accumulator": {"level": "L0C", "dtype": "fp32", "bytes": 4}
+  },
+  "knowledge": {
+    "patterns": ".agents/platforms/toolchains/ascend/knowledge",
+    "bottlenecks": ".agents/platforms/toolchains/ascend/workflow.md",
+    "algorithm_candidates": ".agents/platforms/toolchains/ascend/workflow.md",
+    "capability_gaps": ".agents/platforms/toolchains/ascend/workflow.md"
+  },
+  "integration": {
+    "scaffold_skill": ".agents/skills/tilelang-ascend/SKILL.md",
+    "script": ".agents/tools/toolchains/ascend_tileops.py",
+    "default_source_repo": null
+  },
+  "templates": {
+    "kernel": ".agents/platforms/toolchains/ascend/kernel_template.py"
+  },
+  "ruleset": ".agents/platforms/toolchains/ascend/workflow.md",
+  "programming_modes": {
+    "migration_default": "simd",
+    "choices": {
+      "simd": "SIMD",
+      "simt": "SIMT",
+      "cube": "Cube",
+      "hybrid": "混合"
+    }
+  },
+  "diagnostics": {
+    "classify_skill": "tilelang-ascend",
+    "debug_skill": "tilelang-ascend"
+  },
+  "measurement": {
+    "scope": "operator",
+    "unit": "us",
+    "raw_evidence_field": "ascend_profile_path"
+  },
+  "stage_skills": {
+    "design": "tilelang-ascend",
+    "review": "tilelang-ascend",
+    "develop": "tilelang-ascend",
+    "optimize": "tilelang-ascend"
+  }
+}

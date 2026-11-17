@@ -141,6 +141,12 @@ class PlatformContext:
             return {}
         return {**self.selection, "platform_runtime": self.runtime}
 
+    def check_environment(self):
+        try:
+            return self.adapter.check_environment(str(ROOT))
+        except (OSError, RuntimeError) as exc:
+            raise PlatformError(str(exc)) from exc
+
     def probe(self):
         if self.hardware is None:
             return {"observed_cores": self.adapter.device_cores()}
@@ -149,9 +155,7 @@ class PlatformContext:
             raise PlatformError(
                 f"expected {self.hardware['hardware_id']}, active device reports {device['name']}"
             )
-        stamp = self.adapter.toolchain_stamp(str(ROOT), active=True)
-        if not all(stamp.get(key) for key in ("tilelang", "cann", "compiler")):
-            raise PlatformError("active NPUIR toolchain version could not be verified")
+        stamp = self.check_environment()
         result = {"device": device, "toolchain_stamp": stamp}
         if self.runtime is not None and self.runtime != result:
             raise PlatformError(

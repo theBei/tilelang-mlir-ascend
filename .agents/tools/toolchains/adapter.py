@@ -72,6 +72,14 @@ class ToolchainAdapter(ABC):
     def profile_samples(self, output) -> list[float]:
         """Read samples from the profiler's native output."""
 
+    def check_environment(self, repo_root: str) -> dict:
+        """Return the stamp after checking the active toolchain."""
+        stamp = self.toolchain_stamp(repo_root, active=True)
+        if not all(stamp.get(key) for key in ("tilelang", "cann", "compiler")):
+            backend = self.workflow_context()["backend"].upper()
+            raise RuntimeError(f"active {backend} toolchain version could not be verified")
+        return stamp
+
     @abstractmethod
     def toolchain_stamp(self, repo_root: str, *, active: bool = False) -> dict:
         """Read the platform's current toolchain stamp."""
