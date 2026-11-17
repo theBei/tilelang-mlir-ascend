@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import csv
-import glob
 import contextlib
 import io
 import json
@@ -101,12 +100,16 @@ class NpuirToolchain(ToolchainAdapter):
 
     def profile_samples(self, output) -> list[float]:
         samples = []
-        pattern = os.path.join(output, "OPPROF_*", "*", "*", "OpBasicInfo_*.csv")
-        for path in sorted(glob.glob(pattern)):
-            with open(path) as handle:
-                for row in csv.DictReader(handle):
-                    if row.get(DURATION_FIELD):
-                        samples.append(float(row[DURATION_FIELD]))
+        for capture in sorted(Path(output).glob("OPPROF_*")):
+            paths = sorted(capture.glob("*/*/OpBasicInfo_*.csv"))
+            # A single launch writes an unnumbered CSV at the capture root.
+            if not paths:
+                paths = list(capture.glob("OpBasicInfo.csv"))
+            for path in paths:
+                with path.open() as handle:
+                    for row in csv.DictReader(handle):
+                        if row.get(DURATION_FIELD):
+                            samples.append(float(row[DURATION_FIELD]))
         return samples
 
     def migration_mode(self, source_repo: str, operator: str) -> str:
