@@ -557,41 +557,96 @@ def test_pre_fix_tasks_keep_recorded_evidence(monkeypatch):
         pc.resolve_platform(state=saved)
 
 
-def test_task_context_reaches_child_and_restores_environment(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "model,toolchain,profiler",
+    [("ascend-910b3", "npuir", "msprof"), ("ascend-950dt-9582", "ascend", "msopprof")],
+)
+@pytest.mark.parametrize("entry", ["saved_task", "explicit", "explicit_with_old_task"])
+def test_task_context_reaches_child_and_restores_environment(
+    tmp_path, monkeypatch, model, toolchain, profiler, entry
+):
     import argparse
     import os
     import subprocess
 
-    context = pc.resolve_platform("ascend-910b3", "npuir")
-    (tmp_path / ".stage_state.json").write_text(json.dumps(context.selection))
-    selected = pc.command_platform(
-        argparse.Namespace(task_dir=str(tmp_path), hardware=None, toolchain=None)
-    )
-    monkeypatch.delenv("TILEOPS_TASK_DIR", raising=False)
     tileops = Path(__file__).resolve().parents[3] / "examples/TileOPs"
+    monkeypatch.syspath_prepend(str(tileops))
     monkeypatch.setenv("PYTHONPATH", str(tileops))
-    with pc.using_platform(selected):
-        result = subprocess.check_output(
-            [
-                sys.executable,
-                "-c",
-                "from tileops.utils.task_platform import get_task_platform; print(get_task_platform().hardware['hardware_id'])",
-            ],
-            cwd=tmp_path,
-            text=True,
+    monkeypatch.delenv("TILEOPS_TASK_DIR", raising=False)
+    monkeypatch.delenv(pc.PLATFORM_ENV, raising=False)
+    context = pc.resolve_platform(model, toolchain)
+    if entry == "saved_task":
+        (tmp_path / ".stage_state.json").write_text(json.dumps(context.selection))
+        context = pc.command_platform(
+            argparse.Namespace(task_dir=str(tmp_path), hardware=None, toolchain=None)
         )
-    assert result.strip().endswith("ascend-910b3")
-    assert "TILEOPS_TASK_DIR" not in os.environ
+    elif entry == "explicit_with_old_task":
+        old = tmp_path / "old_task"
+        old.mkdir()
+        old_context = pc.resolve_platform(
+            "ascend-910b3" if toolchain == "ascend" else "ascend-950dt-9582",
+            "npuir" if toolchain == "ascend" else "ascend",
+        )
+        (old / ".stage_state.json").write_text(json.dumps(old_context.selection))
+        monkeypatch.setenv("TILEOPS_TASK_DIR", str(old))
+        monkeypatch.setenv(pc.PLATFORM_ENV, json.dumps(old_context.evidence()))
+    previous = {
+        key: os.environ.get(key) for key in ("TILEOPS_TASK_DIR", pc.PLATFORM_ENV)
+    }
+    probe = """import json
+from tileops.utils.task_platform import get_task_platform, shared_memory_budget
+from tileops.benchmark.msprof import _task_adapter
+context = get_task_platform()
+print(json.dumps({
+    "hardware": context.hardware["hardware_id"],
+    "toolchain": context.toolchain["toolchain_id"],
+    "budget": shared_memory_budget(),
+    "profiler": _task_adapter().profiler,
+}))
+"""
+    with pc.using_platform(context):
+        from tileops.utils.task_platform import get_task_platform
+
+        assert get_task_platform().selection == context.selection
+        result = subprocess.check_output(
+            [sys.executable, "-c", probe], cwd=tmp_path, text=True
+        )
+        cli = json.loads(
+            subprocess.check_output(
+                [
+                    sys.executable,
+                    str(pc.ROOT / ".agents/tools/statectl.py"),
+                    "platform",
+                ],
+                cwd=tmp_path,
+                text=True,
+            )
+        )
+        assert cli["platform"]["hardware_id"] == model
+        assert cli["platform"]["toolchain_id"] == toolchain
+        assert json.loads(result) == {
+            "hardware": model,
+            "toolchain": toolchain,
+            "budget": context.hardware["capacity_bytes"]["UB"],
+            "profiler": profiler,
+        }
+    assert {key: os.environ.get(key) for key in previous} == previous
 
 
-@pytest.mark.parametrize("model", ["ascend-910b2c", "ascend-910b3"])
+@pytest.mark.parametrize(
+    "model", ["ascend-910b2c", "ascend-910b3", "ascend-950dt-9582"]
+)
 @pytest.mark.parametrize("level", ["L0A", "L0B"])
 def test_original_operand_memory_budget_is_enforced(model, level):
-    context = pc.resolve_platform(model, "npuir")
-    checks = check_ub_budget(
-        f"## 4.5 内存\n**{level}**\n| buffer | 128KB |\n", context.design_budget()
+    context = pc.resolve_platform(
+        model, "ascend" if model == "ascend-950dt-9582" else "npuir"
     )
-    assert any(check["status"] == "fail" for check in checks), checks
+    for size, status in ((64, "pass"), (128, "fail")):
+        checks = check_ub_budget(
+            f"## 4.5 内存\n**{level}**\n| buffer | {size}KB |\n",
+            context.design_budget(),
+        )
+        assert checks[0]["status"] == status, checks
 
 
 def test_native_blockscaled_gemm_has_accumulator_budget():
@@ -674,3 +729,13 @@ def test_malformed_config_fingerprint_is_rejected():
     }
     with pytest.raises(pc.PlatformError, match="configuration changed"):
         pc.resolve_platform(state=saved)
+
+
+@pytest.mark.parametrize("level", ["L0A", "L0B"])
+def test_native_operand_memory_heading_is_checked(level):
+    context = pc.resolve_platform("ascend-950dt-9582", "ascend")
+    checks = check_ub_budget(
+        f"## 4.5 内存\n### {level}\n| buffer | 128KB |\n",
+        context.design_budget(),
+    )
+    assert any(check["status"] == "fail" for check in checks), checks

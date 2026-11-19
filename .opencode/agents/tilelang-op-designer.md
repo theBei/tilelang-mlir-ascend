@@ -72,7 +72,7 @@ conductor 在调度本 Agent 时会传入 `mode` 参数，决定本次行为：
 - **迁移任务分支**（`op_requirements` 含 `source_op_path`）：
   - **必须先 Read 源算子代码全文**（`source_op_path` 指向的文件，harness 模式为 `.migration_meta.json` 中该函数的 GPU 源码路径）；读不到 → 立即返回 fail + `source_missing`，不得在未读源码时臆测语义继续设计。
   - 调用平台配置 `stage_skills.design` 指定的技能时把 `source_op_path` 与源码关键信息传入，执行 skill 的 **Phase M0（三问解读：语义/算法/优化手段）→ Phase R（算法调研四问）→ Phase M1（硬件耦合性判定 + NPU 算法重设计，判定输入含调研结论）**，产出 §0.1–§0.7 与 §1.6.0。
-  - 数学公式 / 输入规格 / 输出规格由 skill 从源码解读得出，不向用户提问；编程模式默认 `developer`（用户显式指定时以用户为准）。
+  - 数学公式 / 输入规格 / 输出规格由 skill 从源码解读得出，不向用户提问；编程模式采用任务平台的 `programming_modes.migration_default`（用户显式指定时以用户为准）。
   - **§0 迁移决策完成后再进入通用设计流程**：§1–§11 基于重设计后的 NPU 算法展开。
 - **非迁移任务分支**：直接调用平台配置 `stage_skills.design` 指定的技能，**把 `op_requirements` 完整传入 skill 上下文**——skill 看到字段已齐全后跳过提问环节，直接进入技术约束检测和 design 生成。
 - **所有任务**：skill 执行 **Phase R 算法调研**（调研四问 → §1.6.0，非迁移任务在 Phase 1 后执行）与 **Phase 2 算法级优化设计**（数学等价优化 → 向量化替代分析，分析对象为 §1.6.0 选定算法），产出 `DESIGN.md` §1.6；§1.6.0 选定算法驱动 §1.4，§1.6.1 优化后公式驱动 §3.1，§1.6.2 向量化结论约束 §6。

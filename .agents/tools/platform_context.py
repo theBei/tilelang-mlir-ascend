@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from toolchains import TOOLCHAINS, compatibility_profile
 from toolchains.adapter import ToolchainAdapter
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PLATFORMS = ROOT / ".agents/platforms"
 STATE_FILES = (".migration_state.json", ".stage_state.json")
 ACTIVE = ContextVar("task_platform", default=None)
+PLATFORM_ENV = "TILELANG_TASK_PLATFORM"
 
 
 class PlatformError(ValueError):
@@ -314,6 +316,10 @@ def command_platform(args, directory=None):
     if args.task_dir and explicit is None:
         raise PlatformError(f"no task state found at {args.task_dir}")
     path = explicit or inferred
+    if not (path or args.hardware or args.toolchain):
+        inherited = get_platform(required=False)
+        if inherited is not None:
+            return inherited
     platform = resolve_platform(
         args.hardware, args.toolchain, state=read_json(path) if path else None
     )
@@ -326,9 +332,22 @@ def command_platform(args, directory=None):
     return replace(platform, task_dir=path.parent if path else None)
 
 
-def get_platform():
+def get_platform(*, required=True):
     context = ACTIVE.get()
     if context is None:
+        task_dir = os.environ.get("TILEOPS_TASK_DIR")
+        inherited = os.environ.get(PLATFORM_ENV)
+        if task_dir:
+            context = command_platform(
+                SimpleNamespace(task_dir=task_dir, hardware=None, toolchain=None)
+            )
+        elif inherited is not None:
+            try:
+                state = json.loads(inherited)
+            except json.JSONDecodeError as exc:
+                raise PlatformError(f"invalid inherited platform: {exc}") from exc
+            context = resolve_platform(state=state)
+    if context is None and required:
         raise PlatformError(
             "no active task platform; select hardware and toolchain or supply a task directory"
         )
@@ -353,17 +372,26 @@ def get_adapter():
 @contextmanager
 def using_platform(context):
     token = ACTIVE.set(context)
-    previous_task = os.environ.get("TILEOPS_TASK_DIR")
-    if context.task_dir is not None:
-        os.environ["TILEOPS_TASK_DIR"] = str(context.task_dir)
+    environment = {
+        "TILEOPS_TASK_DIR": str(context.task_dir)
+        if context.task_dir is not None
+        else None,
+        PLATFORM_ENV: json.dumps(context.evidence()),
+    }
+    previous = {key: os.environ.get(key) for key in environment}
     try:
+        for key, value in environment.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         yield
     finally:
-        if context.task_dir is not None:
-            if previous_task is None:
-                os.environ.pop("TILEOPS_TASK_DIR", None)
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
             else:
-                os.environ["TILEOPS_TASK_DIR"] = previous_task
+                os.environ[key] = value
         ACTIVE.reset(token)
 
 

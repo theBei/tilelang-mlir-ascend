@@ -518,55 +518,6 @@ def _collect_torch_aliases(tree: ast.AST) -> set[str]:
     return aliases
 
 
-def _jit_decorators(tree: ast.AST):
-    """Yield (call_node, has_target, target_value) for tilelang.jit decorators."""
-    tilelang_aliases, jit_names = set(), set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for item in node.names:
-                if item.name == "tilelang":
-                    tilelang_aliases.add(item.asname or "tilelang")
-        elif isinstance(node, ast.ImportFrom) and node.module == "tilelang":
-            for item in node.names:
-                if item.name == "jit":
-                    jit_names.add(item.asname or "jit")
-
-    def is_jit(func) -> ast.expr | None:
-        for dec in func.decorator_list:
-            target = None
-            if isinstance(dec, ast.Call):
-                target = dec.func
-            elif isinstance(
-                dec, (ast.Attribute, ast.Name)
-            ):  # bare @tilelang.jit / @jit
-                target = dec
-            if target is None:
-                continue
-            if isinstance(target, ast.Attribute) and target.attr == "jit":
-                if isinstance(target.value, ast.Name) and (
-                    target.value.id in tilelang_aliases
-                ):
-                    return dec
-            elif isinstance(target, ast.Name) and target.id in jit_names:
-                return dec
-        return None
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            dec = is_jit(node)
-            if dec is not None:
-                if isinstance(dec, ast.Call):
-                    for kw in dec.keywords:
-                        if kw.arg == "target":
-                            val = getattr(kw.value, "value", None)
-                            yield dec, True, val
-                            break
-                    else:
-                        yield dec, False, None
-                else:
-                    yield dec, False, None
-
-
 def _uses_namespace(body_nodes, aliases: set[str]) -> bool:
     for node in body_nodes:
         for sub in ast.walk(node):

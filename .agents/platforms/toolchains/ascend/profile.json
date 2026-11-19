@@ -10,12 +10,16 @@
     "table_levels": [
       "UB",
       "L1",
-      "L0C"
+      "L0C",
+      "L0A",
+      "L0B"
     ],
     "heading_levels": [
       "UB",
       "L1",
-      "L0C"
+      "L0C",
+      "L0A",
+      "L0B"
     ],
     "inflation_level": "UB",
     "accumulator": {
@@ -65,6 +69,7 @@
     "optimize": "tilelang-ascend"
   },
   "compatible_revisions": {
-    "713dd29045098e397379358850f37d2eb6211de3dc24f6d6b2a36445b2ab62ef": "9b8702e0af731844c53549ff73354877cbe859571c5e9198a39e0451c42e29b1"
+    "713dd29045098e397379358850f37d2eb6211de3dc24f6d6b2a36445b2ab62ef": "81ed89e06c8dfa5bfe91edc7a12405f7749f3028a4ce0fd89ae46d3be876b5cb",
+    "9b8702e0af731844c53549ff73354877cbe859571c5e9198a39e0451c42e29b1": "81ed89e06c8dfa5bfe91edc7a12405f7749f3028a4ce0fd89ae46d3be876b5cb"
   }
 }

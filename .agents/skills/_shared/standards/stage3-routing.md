@@ -10,7 +10,7 @@
 
 | Developer 返回 | mode（下次调度时） | 路由 |
 |---------------|------------------|------|
-| `[PRECISION_PASS]` | — | `complete_stage(3)` → **二次校验精度**（按平台规则重新跑全量精度 确认真实性）→ 按 `scenario` 分支：`new_op`/`migration-plain` 询问用户是否需要性能调优；`migration-harness` 不询问，标记该函数 `done` 进入下一函数（全部完成则 `start_stage(5)`）。此时 Developer 已在 L0 通过后扩展并跑过 L1/L2/Boundary 全量；L2/Boundary 告警仅记录不阻塞 |
+| `[PRECISION_PASS]` | — | `complete_stage(3)` → **二次校验精度**（按平台规则重新跑全量精度 确认真实性）→ 按 `scenario` 分支：`new_op`/`migration-plain` 询问用户是否需要性能调优；`migration-harness` 不询问，标记该函数 `done` 进入下一函数（全部完成则 `migration phase --phase INTEGRATE`，读取聚合任务的平台上下文并调度 integrator）。此时 Developer 已在 L0 通过后扩展并跑过 L1/L2/Boundary 全量；L2/Boundary 告警仅记录不阻塞 |
 | `[PRECISION_FAIL]` | `precision_fix` | Stage 3 内重试（L0 或 L1 未达标）。把失败信息作为 `last_failure_summary` 传入。**强制要求 Developer 先备份当前 impl 到 `history_version/{op}_impl_s3_attempt{N}.py` 再做修改** |
 | `[DESIGN_ERROR]` | — | 触发设计修订循环（路径 B，计 `retry_count`） |
 | 无标记且 exit code ≠ 0 | `retry_impl` | Stage 3 内重试，将 stderr 摘要作为 `last_failure_summary` 传入 |
