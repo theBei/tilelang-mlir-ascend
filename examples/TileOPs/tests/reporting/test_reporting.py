@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tileops.benchmark.benchmark_base import BenchmarkReport
 from tileops.benchmark.msprof import _parse_op_basic_info
 from tileops.reporting.analyzer import analyze_run
@@ -49,7 +51,20 @@ def test_parse_junit_report_counts_suite_level_errors(tmp_path):
     assert parsed["passed"] == 0
 
 
-def test_msprof_csv_parser_reports_distinct_captured_ops(tmp_path):
+@pytest.mark.parametrize("toolchain", ["npuir", "ascend"])
+def test_msprof_csv_parser_reports_distinct_captured_ops(tmp_path, monkeypatch, toolchain):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[4] / ".agents/tools"))
+    from toolchains import TOOLCHAINS
+
+    from tileops.benchmark import msprof
+
+    adapter = TOOLCHAINS[toolchain]()
+    monkeypatch.setattr(msprof, "_task_adapter", lambda: adapter)
+    command = adapter.benchmark_profiler_args(None, str(tmp_path), 1, 0)
+    assert command[0] == adapter.profiler
+    assert "--aic-metrics=Roofline" in command
+    assert not any(arg.startswith("--kernel-name=") for arg in command)
+
     first = tmp_path / "OPPROF_demo" / "Main" / "0"
     second = tmp_path / "OPPROF_demo" / "Aux" / "0"
     first.mkdir(parents=True)

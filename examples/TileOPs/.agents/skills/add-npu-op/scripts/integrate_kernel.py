@@ -111,49 +111,7 @@ def find_design_doc(kernel_src: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def kernel_ascend_mode(kernel_src: Path) -> str:
-    """Read the verified source mode, accepting legacy literal setdefault calls."""
-    tree = ast.parse(kernel_src.read_text(encoding="utf-8"))
-    declared: list[str] = []
-    defaults: list[str] = []
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and any(
-                isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
-                for target in node.targets
-            )
-            and isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-        ):
-            declared.append(node.value.value)
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-            continue
-        call = node.value
-        if (
-            isinstance(call.func, ast.Attribute)
-            and call.func.attr == "setdefault"
-            and isinstance(call.func.value, ast.Attribute)
-            and call.func.value.attr == "environ"
-            and len(call.args) >= 2
-            and isinstance(call.args[0], ast.Constant)
-            and call.args[0].value == "TILELANG_ASCEND_MODE"
-        ):
-            value = call.args[1]
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                defaults.append(value.value)
-            elif isinstance(value, ast.Name) and value.id == "ASCEND_MODE" and declared:
-                defaults.append(declared[-1])
-    modes = {mode.capitalize() for mode in declared + defaults}
-    if not modes or modes - {"Developer", "Expert"} or len(modes) != 1:
-        raise SystemExit(
-            f"[error] {kernel_src}: missing or conflicting ASCEND_MODE / "
-            "TILELANG_ASCEND_MODE declaration; expected one Developer or Expert mode"
-        )
-    return modes.pop()
-
-
-def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode: str) -> bool:
+def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode: str | None) -> bool:
     """Set the Kernel subclass mode once, without changing other wrapper logic."""
     source = wrapper_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -183,7 +141,9 @@ def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode:
     if len(assignments) > 1:
         raise SystemExit(f"[error] {wrapper_path}: duplicate ascend_mode in {cls.name}")
     lines = source.splitlines(keepends=True)
-    declaration = f'    ascend_mode = "{mode}"\n'
+    declaration = (
+        "    ascend_mode = None\n" if mode is None else f'    ascend_mode = "{mode}"\n'
+    )
     if assignments:
         current = assignments[0]
         if not isinstance(current.value, ast.Constant) or current.end_lineno != current.lineno:
@@ -391,6 +351,10 @@ def main() -> None:
     )
     ap.add_argument("--tileops-root", type=Path, default=None)
     ap.add_argument("--examples-root", type=Path, default=None)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[6] / ".agents/tools"))
+    from platform_context import add_platform_args, command_platform
+
+    add_platform_args(ap)
     ap.add_argument("--skip-smoke", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -438,7 +402,11 @@ def main() -> None:
         wrapper_names = list(functions)
 
     sources = {f: find_conductor_file(f, examples_root, op_slug, overrides) for f in functions}
-    source_modes = {func: kernel_ascend_mode(src) for func, src in sources.items()}
+    adapter = command_platform(
+        argparse.Namespace(task_dir=str(args.task_dir) if args.task_dir else None,
+                  hardware=args.hardware, toolchain=args.toolchain)
+    ).adapter
+    source_modes = {func: adapter.integration_mode(src) for func, src in sources.items()}
     unique_modes = set(source_modes.values())
     if len(unique_modes) != 1:
         raise SystemExit(

@@ -49,7 +49,7 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 ### Phase 0：读取上下文
 
 1. Read conductor 传入的全部任务工件（harness 场景逐函数读取，并读取 op 级 `SESSION_TIMING_ANALYSIS.md`；optimize 场景无 `RETROSPECTIVE.md`，复盘在 `opt_log.md` 的 `Skill Retrospective` 章节）。
-2. 读取任务平台 `knowledge.patterns` 下的 `INDEX.md`（条目索引 + 预算现状——K-2 渐进披露后不再全文读单文件；本次蒸馏候选涉及的条目按索引精读对应主题文件，可用 `python3 .agents/tools/kb_search.py "<候选主题>"` 辅助查重定位）。
+2. 读取任务平台 `knowledge.patterns` 下的 `INDEX.md`（条目索引 + 预算现状——K-2 渐进披露后不再全文读单文件；本次蒸馏候选涉及的条目按索引精读对应主题文件，可用 `python3 .agents/tools/kb_search.py "<候选主题>" --task-dir <任务目录>` 辅助查重定位）。
    有正式组合测量时，按任务上下文登记型号、工具链、实际版本、指标、数值、单位、负载和来源；历史证据的适用条件沿用原记录。
 
 3. Read `.agents/evolution/queue.md` 全部条目（查重基准 + Tier 1 确认计数基准）。

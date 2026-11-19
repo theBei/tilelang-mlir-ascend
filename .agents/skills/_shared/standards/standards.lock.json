@@ -1,14 +1,15 @@
 {
   "files": {
-    "README.md": "3f0ff17a7bb024a450e96925280dce1b6d297d5135abbcab02c81c40bc8a2785",
+    "README.md": "dfc598f60a4d4eb74b22be71605fb3aabcf87b504012bb5944e487145d945f90",
     "algorithm-research.md": "e35527e0567e3ca2652bcf5b4707999fab60be9f0ea620738bd1fb08a52d9aca",
-    "core-split-strategy.md": "2636c57a1acce4e3dcbd09fae92b8d8e820d918572d65dabc41ca0019d9bad34",
+    "core-split-strategy.md": "03941b190bcc86570b14286c29462b4a0d1eb86c6c5300e776abc677d6d36890",
     "final-report-template.md": "460842324eb92eb2df39d72611ab03b4308244c9f5b01323b2a2cc2cfaea81ca",
-    "gate-and-retry.md": "25ef5507fd0d6253a1d5f5a3f66baf98c4022a350753b6a23f1e210e7ee05e16",
-    "hardware-cost-model.md": "8f0d8a594b5f6122bab6d04a0a583c46bd272fbdd64426036b8efdce0ca79e98",
-    "negative-claim-evidence.md": "219f8408e1c2f7110cfa203e5fce27d3655a6e7e7127acdc708cf307f4ae8eb5",
-    "perf-feedback.md": "49a8dd6c31f4c1dfc7004ff844851dc6cb98886c4fe821a8de2ce9dd25082a1a",
+    "gate-and-retry.md": "59c132dfeed7e0abeb8e956eb5bf4ac3979f7f89561462e0c6edb5dcb10bc556",
+    "hardware-cost-model.md": "875b9863023dc54f401d75fc89909f3233397ea66259f8f700a5649150669bd9",
+    "knowledge-entry-schema.md": "ada730b77d0399e73738c2aa62cdbdc3143fca79e5870afa8218d22eb60a3991",
+    "negative-claim-evidence.md": "394f46b13e2b48c795360ef646777a9d8b8e017b8931cc283b6ad54c3028bba1",
+    "perf-feedback.md": "f5e40257cf38c20bd2a01e9ed898b7d1f4b0cc8e89dcee2c6f6e5dd292b56d6a",
     "signal-registry.md": "69e944e0a368fc818d155ea549fe4230f2ab5b9ed34d433f99e4bf5d92727d78",
-    "stage3-routing.md": "2103802694a15bf5b2404e58d70257d9ba4c942c5b65c8df97afaa768c1d7055"
+    "stage3-routing.md": "7a345f3cd52fe2f2f77ce0d746951dfb62abbfc41ac2b47c5c7f63ac3d2084ea"
   }
 }

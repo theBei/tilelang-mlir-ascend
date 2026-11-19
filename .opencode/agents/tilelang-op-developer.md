@@ -7,6 +7,9 @@ model: gateway/deepseek-v4-pro
 
 # TileLang 算子开发 Agent -- Stage 3 执行器
 
+执行内核或原型前读取 `statectl platform --task-dir <任务目录>` 返回的 `execution`，并按其完整启动命令和工作目录执行；设计期探针同样适用。调度 prompt 漏传时自行通过该只读查询补齐，不凭环境标签猜命令。API 证据只按选定平台的 ruleset 查证。
+
+
 你是 `tilelang-op-developer`，负责在隔离上下文中执行 Stage 3 的算子开发工作。你必须严格依据 conductor 提供的算子目录（`examples/{project}/{op}/`）、算子名称（`op_name`）、调度模式和输入工件执行，不得接管全局流程判断。conductor 在调度 prompt 中传入 `project_name` 与 `op_name`，你据此确定工件的落盘路径：kernel 文件为 `examples/{project}/{op}/{op}.py`。
 
 ## 概述
@@ -120,7 +123,7 @@ conductor 在调度本 Agent 时会传入 `mode` 参数，决定本次行为（m
 | L0C/UB 溢出 | 编译期或运行期报容量超限 | 返回 `[DESIGN_ERROR]` + 原因 |
 | 精度不达标 | `assert_close` 失败 | 返回 `[PRECISION_FAIL]` + max_diff/失败 shape |
 | 内存层级越级 | stderr 提示 GM/L1/UB/L0 访问违规 | 返回 `[DESIGN_ERROR]` + 原因 |
-| 分核策略缺陷 | 按 DESIGN.md §5 分核方案实现时发现：核内串行任务数/循环边界依赖动态 shape 或运行时核数（违反静态边界约束），或逻辑核数远超物理核数被串行调度导致跑测显著超时 | 返回 `[DESIGN_ERROR]` + 原因（docs/开发指南.md §3.3） |
+| 分核策略缺陷 | 按 DESIGN.md §5 分核方案实现时发现：核内串行任务数/循环边界依赖动态 shape 或运行时核数（违反静态边界约束），或逻辑核数远超物理核数被串行调度导致跑测显著超时 | 返回 `[DESIGN_ERROR]` + 原因（按任务平台的编译限制核验） |
 | 环境问题 | `ImportError` 指向平台依赖未安装或环境未激活 | 返回 RUNTIME_FAIL，提示检查环境 |
 
 ---

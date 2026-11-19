@@ -14,8 +14,10 @@
   - examples/{project}/{op}/perf_opt/opt_log.md#round-3
   - examples/{project}/{op}/perf_opt/profiles/v3a/
 - repro: python examples/{project}/{op}/perf_opt/{op}.py --level L0
-- toolchain_stamp: tilelang@2026-08-28 build, Ascend910B2C, CANN 8.x
-- target_doc: .agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md
+- toolchain_stamp: <任务平台运行记录中的 toolchain_stamp.raw>
+- hardware_id: <所选型号；仅硬件相关条目填写>
+- toolchain_id: <所选工具链；仅工具链相关条目填写>
+- target_doc: <任务平台 knowledge.bottlenecks 对应路径>
 - delta: |
     add 条目 BP-STRIDE-01：
     | 现象 | 动作 | 判据 |
@@ -72,3 +74,5 @@ R 类提案的 `delta` 必须达到"apply 模式可直接执行"的深度：
 - `## Pending` 区只保留 `pending` / `verified` / `conflict` 活跃条目。
 - `merged` / `rejected` / `expired` 移入 `## Decided（merged / rejected / expired / conflict 归档）` 区，保留全部字段。
 - 归档条目不删除、不编辑正文（仅状态与 decided_* 字段更新）。
+
+跨平台纯流程提案显式填写 `toolchain_id: *`；未标平台范围的历史条目沿用原兼容域，不自动共享给新工具链。

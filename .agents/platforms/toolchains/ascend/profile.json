@@ -2,28 +2,43 @@
   "schema_version": 1,
   "toolchain_id": "ascend",
   "backend": "ascend",
-  "supported_hardware": ["ascend-950dt-9582"],
+  "supported_hardware": [
+    "ascend-950dt-9582"
+  ],
   "architecture": "dav-3510",
   "environment_lock": ".agents/platforms/toolchains/ascend/toolchain.lock.json",
   "design_rules": {
-    "table_levels": ["UB", "L1", "L0C"],
-    "heading_levels": ["UB", "L1", "L0C"],
+    "table_levels": [
+      "UB",
+      "L1",
+      "L0C"
+    ],
+    "heading_levels": [
+      "UB",
+      "L1",
+      "L0C"
+    ],
     "inflation_level": "UB",
-    "accumulator": {"level": "L0C", "dtype": "fp32", "bytes": 4}
+    "accumulator": {
+      "level": "L0C",
+      "dtype": "fp32",
+      "bytes": 4
+    }
   },
   "knowledge": {
     "patterns": ".agents/platforms/toolchains/ascend/knowledge",
-    "bottlenecks": ".agents/platforms/toolchains/ascend/workflow.md",
-    "algorithm_candidates": ".agents/platforms/toolchains/ascend/workflow.md",
-    "capability_gaps": ".agents/platforms/toolchains/ascend/workflow.md"
+    "bottlenecks": ".agents/platforms/toolchains/ascend/knowledge/bottlenecks.md",
+    "algorithm_candidates": ".agents/platforms/toolchains/ascend/knowledge/algorithm-candidates.md",
+    "capability_gaps": ".agents/platforms/toolchains/ascend/knowledge/capability-gaps.md"
   },
   "integration": {
-    "scaffold_skill": ".agents/skills/tilelang-ascend/SKILL.md",
-    "script": ".agents/tools/toolchains/ascend_tileops.py",
+    "scaffold_skill": "examples/TileOPs/.agents/skills/add-npu-op/SKILL.md",
+    "script": ".agents/skills/add-npu-op/scripts/integrate_kernel.py",
     "default_source_repo": null
   },
   "templates": {
-    "kernel": ".agents/platforms/toolchains/ascend/kernel_template.py"
+    "kernel": ".agents/platforms/toolchains/ascend/kernel_template.py",
+    "experiments": ".agents/skills/tilelang-op-optimize/references/run_experiments_template.py"
   },
   "ruleset": ".agents/platforms/toolchains/ascend/workflow.md",
   "programming_modes": {
@@ -40,9 +55,9 @@
     "debug_skill": "tilelang-ascend"
   },
   "measurement": {
-    "scope": "operator",
+    "scope": "kernel",
     "unit": "us",
-    "raw_evidence_field": "ascend_profile_path"
+    "raw_evidence_field": "msprof_raw_path"
   },
   "stage_skills": {
     "design": "tilelang-ascend",

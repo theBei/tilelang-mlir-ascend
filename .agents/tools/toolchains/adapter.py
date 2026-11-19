@@ -1,6 +1,8 @@
 """Toolchain operations used by the agent workflow."""
 
 from abc import ABC, abstractmethod
+import sys
+import re
 
 
 class ToolchainAdapter(ABC):
@@ -71,6 +73,49 @@ class ToolchainAdapter(ABC):
     @abstractmethod
     def profile_samples(self, output) -> list[float]:
         """Read samples from the profiler's native output."""
+
+    @abstractmethod
+    def benchmark_profiler_args(self, kernel, output, launch_count, warm_up) -> list[str]:
+        """Build the framework latency-collection command."""
+
+    @abstractmethod
+    def benchmark_profile_result(self, output) -> tuple[list[float], str, list[str]]:
+        """Read latency samples in microseconds and captured operator identities."""
+
+    def classify_stamp(self, entry_stamp: str, current: dict) -> str:
+        """Compare an explicitly recorded fingerprint; legacy formats are backend-owned."""
+        current_stamp = current.get("raw", "")
+        if not (
+            re.fullmatch(r"[0-9a-f]{64}", entry_stamp or "")
+            and re.fullmatch(r"[0-9a-f]{64}", current_stamp)
+        ):
+            return "unknown"
+        return "fresh" if entry_stamp == current_stamp else "stale"
+
+    @abstractmethod
+    def integration_mode(self, kernel_path) -> str | None:
+        """Validate an integrated kernel and return its wrapper mode."""
+
+    @abstractmethod
+    def shared_memory_budget(self, device=None) -> int:
+        """Query the framework memory budget for historical tasks without a model."""
+
+    def execution_command(self, command: list[str], *, output_dir: str | None = None) -> list[str]:
+        """Build a runnable command for the selected execution environment."""
+        return list(command)
+
+    def execution_context(self) -> dict:
+        """Return the platform launch instructions passed to every stage."""
+        return {
+            "mode": "device",
+            "working_directory": "<task_dir>",
+            "precision_command": self.execution_command(
+                self.precision_command("<kernel>", "<level>"), output_dir="<output_dir>"
+            ),
+            "prototype_command": self.execution_command(
+                [sys.executable, "<script>"], output_dir="<output_dir>"
+            ),
+        }
 
     def check_environment(self, repo_root: str) -> dict:
         """Return the stamp after checking the active toolchain."""

@@ -14,7 +14,7 @@
 
 - `perf_opt/opt_log.md`
 - final `perf_opt/{op}.py`
-- baseline 与 final 的 `msprof op` 数据
+- baseline 与 final 的 `平台采集工具` 数据
 - 所有实验分支的 `improved / config_no_gain / family_no_gain / invalid / blocked / defer` 记录
 - 本次最终 `stop_reason`
 
@@ -38,7 +38,7 @@
 **代码证据（经验与过程文件解耦——需要代码时用最少的代码表达）**：凡价值点以代码行为为依据（陷阱实证 / 代价常数 / 结构优化点），其代码证据是**知识域自包含的最小代码**，不是对 `perf_opt/{op}.py`、opt_log 或探针文件的路径引用（那些是 provenance，允许失效；甚至最终调优版本也不一定合入主干）：
 
 - 陷阱/常数类（D）：自包含 + 断言的最小复现（慢/错误形态或绕法/标定形态），落 `examples/{project}/{op}/repro/<ID>.py` 供 evolver 机械转正；
-- **结构优化点（P，正向/反向）**：**慢→快的关键代码更改**——从实验分支/探针/参考 kernel 裁出的最小 diff（完整 before/after 对照，或效应只在完整 kernel 规模显现时的 delta 骨架）**+ 优化见解摘要**（LLM 提炼的一般化洞察：为何该更改慢→快，机制归因到硬件常数/编译器行为）——目标形态见 pattern-library [repro/README.md](pattern-library/repro/README.md)（PATT-twophase-restructure.py 为范例）；无法当场最小化的在 repro 字段标 `repro-missing`。
+- **结构优化点（P，正向/反向）**：**慢→快的关键代码更改**——从实验分支/探针/参考 kernel 裁出的最小 diff（完整 before/after 对照，或效应只在完整 kernel 规模显现时的 delta 骨架）**+ 优化见解摘要**（LLM 提炼的一般化洞察：为何该更改慢→快，机制归因到硬件常数/编译器行为）——目标形态见 pattern-library 平台知识入口指定的复现规范（PATT-twophase-restructure.py 为范例）；无法当场最小化的在 repro 字段标 `repro-missing`。
 
 ---
 
@@ -71,7 +71,7 @@
 只有满足以下条件，才提出新的 `BP_xxx`：
 
 - 它解释了本次真实 profile 现象。
-- 现有 [bottleneck-patterns.md](bottleneck-patterns.md) 不能很好覆盖。
+- 现有 平台 `knowledge.bottlenecks` 不能很好覆盖。
 - 它能对应明确的优化动作。
 - 它有可验证指标。
 - 它不是单个算子的偶然实现细节。

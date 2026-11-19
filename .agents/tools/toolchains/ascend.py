@@ -2,19 +2,24 @@
 
 import ast
 import contextlib
+import csv
+import ctypes
 import hashlib
 import io
 import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
+import tempfile
 from importlib import metadata
 from pathlib import Path
 
-from . import ascend_profile, ascend_tileops
+from .tileops_contract import _read_text, integration_lint, meta_lint
 from .adapter import ToolchainAdapter
+from .cann_profile import benchmark_profile_result
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE = ROOT / ".agents/platforms/toolchains/ascend/profile.json"
@@ -26,10 +31,10 @@ def file_digest(path):
 
 
 class AscendToolchain(ToolchainAdapter):
-    profiler = "torch_npu.profiler"
-    raw_profile_field = "ascend_profile_path"
-    measurement_label = "torch_npu.profiler 设备执行区间并集的算术均值"
-    duration_label = "mean_device_busy_union_us"
+    profiler = "msopprof"
+    raw_profile_field = "msprof_raw_path"
+    measurement_label = "msopprof 口径证据（Task Duration）"
+    duration_label = "Task Duration"
 
     def workflow_context(self):
         profile = json.loads(PROFILE.read_text(encoding="utf-8"))
@@ -37,6 +42,9 @@ class AscendToolchain(ToolchainAdapter):
             ROOT / profile["environment_lock"]
         )
         return profile
+
+    def shared_memory_budget(self, device=None):
+        raise RuntimeError("this toolchain requires a task with an explicit hardware model")
 
     def has_matrix_path(self, design):
         return bool(re.search(r"^[ \t]*T\.gemm\s*\(", design, re.M))
@@ -51,11 +59,21 @@ class AscendToolchain(ToolchainAdapter):
         return "get_device_properties", "② torch.npu.get_device_properties 实查记录"
 
     def probe_device(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            import torch
-            import torch_npu  # noqa: F401 -- registers torch.npu
+        # The simulator driver also writes through C stdio; keep CLI JSON clean.
+        sys.stdout.flush()
+        saved_stdout = os.dup(1)
+        with tempfile.TemporaryFile() as capture:
+            try:
+                os.dup2(capture.fileno(), 1)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    import torch
+                    import torch_npu  # noqa: F401 -- registers torch.npu
 
-            properties = torch.npu.get_device_properties(torch.npu.current_device())
+                    properties = torch.npu.get_device_properties(torch.npu.current_device())
+            finally:
+                ctypes.CDLL(None).fflush(None)
+                os.dup2(saved_stdout, 1)
+                os.close(saved_stdout)
         return {
             "name": properties.name,
             "cores": {
@@ -146,33 +164,71 @@ class AscendToolchain(ToolchainAdapter):
     def precision_command(self, kernel, level):
         return [sys.executable, kernel, "--level", level]
 
+    def execution_command(self, command, *, output_dir=None):
+        if os.environ.get("IS_SIMULATOR_ENV") != "true":
+            return super().execution_command(command, output_dir=output_dir)
+        return [
+            "cannsim", "record", "-s", os.environ["soc_version"],  # noqa: SIM112 -- vendor variable
+            "-n", "0", "-o", output_dir or tempfile.mkdtemp(prefix="tilelang-simulator-"),
+            shlex.join(command),
+        ]
+
+    def execution_context(self):
+        context = super().execution_context()
+        if os.environ.get("IS_SIMULATOR_ENV") != "true":
+            return context
+        return {
+            **context,
+            "mode": "simulator",
+            "instructions": (
+                "先切换到任务目录，脚本和 kernel 用绝对路径，output_dir 每次新建；命令数组最后一项作为单一参数整体引用。"
+                "此启动方式适用于精度验证、设计期原型和任何创建 NPU 张量的探针。"
+                "所有仿真命令顺序执行，不并发启动模型进程，避免 CPU 和内存争用。"
+                "cannsim 是命令行入口，不能用 python -m cannsim。"
+                "仅导入 API/检查签名且不执行设备计算时，可直接在任务目录运行 Python。"
+                "调用方按任务预算设置外层超时；仿真数据不得当作真机性能。"
+            ),
+        }
+
     def profiler_args(self, kernel, output, launch_count, warm_up):
-        raise RuntimeError(
-            "ascend measurements use the guarded Ascend runner in the platform rules"
-        )
+        command = [
+            self.profiler,
+            f"--output={output}",
+            f"--launch-count={launch_count}",
+            f"--warm-up={warm_up}",
+            "--aic-metrics=BasicInfo,PipeUtilization,ArithmeticUtilization,Memory,"
+            "MemoryUB,MemoryL0,L2Cache,ResourceConflictRatio",
+        ]
+        if kernel:
+            command.append(f"--kernel-name={kernel}")
+        return command
+
+    def benchmark_profiler_args(self, kernel, output, launch_count, warm_up):
+        command = self.profiler_args(kernel, output, launch_count, warm_up)
+        command = [arg for arg in command if not arg.startswith("--aic-metrics=")]
+        if kernel is None:
+            command = [arg for arg in command if not arg.startswith("--kernel-name=")]
+        return [*command, "--aic-metrics=Roofline"]
+
+    def benchmark_profile_result(self, output):
+        return benchmark_profile_result(output)
 
     def profile_samples(self, output):
-        output = Path(output)
-        standalone = output / "measurement.json"
-        if standalone.is_file():
-            measurement = ascend_tileops.read_json(standalone)
-            if measurement.get("guard_exit_code") != 0:
-                raise RuntimeError(
-                    "standalone measurement has no successful guard completion"
-                )
-            if measurement["protocol"] != ascend_tileops.PROTOCOL:
-                raise RuntimeError("unexpected standalone timing protocol")
-            return [sample * 1000 for sample in measurement["samples_ms"]]
-        if (output / ascend_profile.PENDING_MEASUREMENT).is_file():
-            raise RuntimeError(
-                "standalone measurement was not published after guard completion"
-            )
-        rows = ascend_tileops.measurements(output)
-        if len(rows) != 1:
-            raise RuntimeError(
-                "select one case and one implementation for a sample series"
-            )
-        return [sample * 1000 for sample in rows[0]["samples_ms"]]
+        samples = []
+        for capture in sorted(Path(output).glob("OPPROF_*")):
+            for path in sorted(capture.rglob("OpBasicInfo*.csv")):
+                with path.open() as handle:
+                    for row in csv.DictReader(handle):
+                        if row.get("Task Duration(us)"):
+                            samples.append(float(row["Task Duration(us)"]))
+        return samples
+
+    def integration_mode(self, kernel_path):
+        path = Path(kernel_path)
+        failures, _ = self.kernel_checks(ast.parse(path.read_text()), str(path), "S5")
+        if failures:
+            raise SystemExit(f"[error] {failures}")
+        return None
 
     def toolchain_stamp(self, repo_root, *, active=False):
         stamp, _ = self._environment(repo_root)
@@ -181,7 +237,7 @@ class AscendToolchain(ToolchainAdapter):
     def check_environment(self, repo_root):
         stamp, errors = self._environment(repo_root)
         if errors:
-            raise RuntimeError("Ascend 950 toolchain mismatch: " + " | ".join(errors))
+            raise RuntimeError("Ascend toolchain mismatch: " + " | ".join(errors))
         return stamp
 
     def _environment(self, repo_root):
@@ -257,14 +313,24 @@ class AscendToolchain(ToolchainAdapter):
         }, errors
 
     def migration_mode(self, source_repo, operator):
+        root = Path(source_repo)
+        directories = ("tileops/manifest", "tests/ops", "benchmarks/ops")
+        if not all((root / directory).is_dir() for directory in directories):
+            return "plain"
+        key = re.compile(f"^{re.escape(operator)}:", re.M)
         return (
             "harness"
-            if ascend_tileops.has_operator(Path(source_repo), operator)
+            if any(
+                key.search(_read_text(str(path)) or "")
+                for path in (root / directories[0]).glob("*.yaml")
+            )
             else "plain"
         )
 
     def scaffold_checks(self, meta_path, repo_root):
-        return ascend_tileops.scaffold_checks(meta_path, repo_root)
+        return meta_lint(meta_path, repo_root)
 
     def integration_checks(self, migration_state, repo_root):
-        return ascend_tileops.integration_checks(migration_state, repo_root)
+        return integration_lint(
+            migration_state, repo_root, integration_mode=self.integration_mode
+        )

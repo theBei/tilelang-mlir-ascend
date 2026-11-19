@@ -3,11 +3,11 @@ name: tilelang-op-develop
 description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + golden），执行测试并返回四出口判定。触发：实现算子、生成 kernel、算子开发、跑精度。"
 ---
 
-# TileLang-NPUIR 算子开发与验证
+# TileLang 算子开发与验证
 
 ## 1. 目标
 
-根据 Stage 1 冻结的 `DESIGN.md` 与 Stage 2 通过的 `REVIEW.md`，生成算子实现文件 `{op}.py`（含 `@tilelang.jit` kernel + 内嵌 PyTorch golden + main 入口），执行测试，并返回四出口判定（[PRECISION_PASS] / [PRECISION_FAIL] / [DESIGN_ERROR] / RUNTIME_FAIL）供 conductor 路由。
+根据 Stage 1 冻结的 `DESIGN.md` 与 Stage 2 通过的 `REVIEW.md`，生成算子实现文件 `{op}.py`（含平台规定的 kernel 构建入口 + 内嵌 PyTorch golden + main 入口），执行测试，并返回四出口判定（[PRECISION_PASS] / [PRECISION_FAIL] / [DESIGN_ERROR] / RUNTIME_FAIL）供 conductor 路由。
 
 > **环境前提**：按任务平台规则加载执行环境并确认依赖。kernel 编译和精度校验在目标设备上实际执行。
 
@@ -65,7 +65,7 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
   - API 实际行为实证（D 类，须带三件套）：如某 API 的隐藏限制、对齐触发条件、静默 dtype 转换、合法形态边界；
   - 有效的调试手法（P 类）：如精度问题的定位顺序、IR dump 关键点；
   - `[DESIGN_ERROR]` 的根因与设计判断教训（P/R 类）：哪类设计判断错了、正确依据是什么。
-- **探针转正（ED-C，D 类发现的 repro 责任前移）**：调试中发现 API 陷阱/行为实证时，探针不再只写 `/tmp`——有价值的最小复现**转正**为 `examples/{project}/{op}/repro/<TRAP-or-CONST-id>.py`（自包含 + 自描述头 + 断言，ED-B 规范见 pattern-library [repro/README.md](../tilelang-op-optimize/references/pattern-library/repro/README.md)），RETROSPECTIVE 的 Value Point Proposals 以该路径为 `repro` 字段（不再引用 `/tmp` session-local 路径）；evolver 终态蒸馏时机械拷入知识域 repro/ 并登记。本 skill 有 NPU 环境，转正前**实际跑一遍**确认断言成立。
+- **探针转正（ED-C，D 类发现的 repro 责任前移）**：调试中发现 API 陷阱/行为实证时，探针不再只写 `/tmp`——有价值的最小复现**转正**为 `examples/{project}/{op}/repro/<TRAP-or-CONST-id>.py`（自包含 + 自描述头 + 断言，ED-B 规范见 平台 knowledge.patterns 中的 repro 规范），RETROSPECTIVE 的 Value Point Proposals 以该路径为 `repro` 字段（不再引用 `/tmp` session-local 路径）；evolver 终态蒸馏时机械拷入知识域 repro/ 并登记。本 skill 有 NPU 环境，转正前**实际跑一遍**确认断言成立。
 - **Transferable Lessons**（迁移多函数任务必写，其他场景可 none）：写给本迁移任务**后续函数**实施者的跨函数教训，一条一行，自包含（不依赖本函数上下文可理解）。
 - 质量红线：无则如实写 `none`；单任务偶然现象不得写成通用规则；不得硬凑。
 
@@ -82,7 +82,7 @@ TileOPs harness 最终 kernel 按任务平台规则声明已验证的编程模�
 # 1. Copyright (c) Huawei Technologies Co., Ltd. 2026.
 # 2. platform and reference imports
 # 2. golden_{op}(...) function
-# 3. @tilelang.jit kernel
+# 3. kernel construction from the selected platform template
 # 4. precision comparing func：run_case()
 # 5. main()
 ```

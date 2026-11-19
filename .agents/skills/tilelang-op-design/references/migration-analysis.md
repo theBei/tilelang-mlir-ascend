@@ -22,7 +22,7 @@
   - [5. 硬件耦合性判定：能用在 NPU 上吗](#5-硬件耦合性判定能用在-npu-上吗)
     - [5.1 三层判定模型](#51-三层判定模型)
     - [5.2 四态处置](#52-四态处置)
-    - [5.3 GPU → Ascend NPU 能力映射表（等价替换速查）](#53-gpu--ascend-npu-能力映射表等价替换速查)
+    - [5.3 目标平台能力映射](#53-目标平台能力映射)
     - [5.4 判定规则](#54-判定规则)
   - [6. NPU 算法重设计](#6-npu-算法重设计)
     - [6.1 重设计输入](#61-重设计输入)
@@ -122,11 +122,11 @@ NPU 侧设计方案（DESIGN.md §1–§11 以此为输入；§0 记录全过程
 |----------|-------------|------|-----------------|------|
 | SMEM tiling | `alloc_shared` + 分块 `T.copy` | 减少 GM 重复访问 | shared memory | 硬件强相关 |
 | coalesced 访问 | 尾轴连续读写 | 访存带宽 | memory coalescing | 硬件强相关 |
-| Tensor Core / mma | `T.gemm` / mma fragment | 矩阵算力 | tensor core | 硬件强相关（NPU 有 Cube 等价） |
+| Tensor Core / mma | `T.gemm` / mma fragment | 矩阵算力 | tensor core | 硬件强相关 |
 | warp shuffle 归约 | shuffle / intra-warp reduce | 低延迟跨线程通信 | warp（32 线程） | 硬件强相关 |
-| 异步搬运 / 多级流水 | `cp.async`、`T.Pipelined` | 访存计算重叠 | 异步拷贝引擎 | 硬件强相关（NPU 有 MTE 等价） |
+| 异步搬运 / 多级流水 | `cp.async`、`T.Pipelined` | 访存计算重叠 | 异步拷贝引擎 | 硬件强相关 |
 | double buffer | 双 buffer 交替 | 流水不 stall | — | 模式可移植 |
-| swizzle / 布局重排 | index 重排、pad | 消 bank conflict | SMEM bank 结构 | 硬件强相关（NPU 不适用） |
+| swizzle / 布局重排 | index 重排、pad | 消 bank conflict | SMEM bank 结构 | 硬件强相关 |
 | register tiling / 累加 | fragment 累加、寄存器分块 | 数据驻留寄存器 | 大寄存器堆 | 硬件强相关 |
 | persistent kernel | block 常驻循环处理任务 | 消 kernel 启动开销 | — | 模式可移植 |
 | fused epilogue | 归约/激活融合进主循环 | 消中间写回 | — | 模式可移植 |
@@ -159,23 +159,9 @@ NPU 侧设计方案（DESIGN.md §1–§11 以此为输入；§0 记录全过程
 | **重新设计** | NPU 无等价能力，按 NPU 约束设计新方案 | 无等价能力且该能力影响性能/正确性 → 走 §6 重设计 |
 | **舍弃** | 不迁移该项 | NPU 上无意义、无必要或有害；**必须写明理由**（否则性能回退无法追溯） |
 
-### 5.3 GPU → Ascend NPU 能力映射表（等价替换速查）
+### 5.3 目标平台能力映射
 
-| GPU / 通用概念 | Ascend NPU 等价能力 | 处置建议 | 注意事项 |
-|----------------|--------------------|---------|----------|
-| shared memory | L1（Cube 输入）/ UB（Vector 数据） | 等价替换 | 容量与对齐不同：按目标型号配置和工具链规则核对 L1、UB 容量及对齐 |
-| Tensor Core mma | Cube 单元（`T.gemm` + L0A/L0B/L0C） | 等价替换 | 按工具链规则核对分形与 NZ 布局，L0C 容量读取目标型号预算 |
-| warp shuffle 归约 | Vector 归约（`T.reduce_sum/max/min`） | **重新设计** | 并行层级不同：warp 32 线程内 shuffle → 向量整行归约，需重排归约策略 |
-| cp.async / 多级异步流水 | `T.Pipelined` + MTE 异步搬运 | 等价替换 | num_stages 需按 UB/L1 容量重新计算 |
-| double buffer | 多 buffer 交替 | 等价替换 | — |
-| swizzle 防 bank conflict | NZ 分形布局（`load_nd2nz` / 框架处理） | **舍弃** | NPU 无 SMEM bank conflict，手动 swizzle 无意义 |
-| block × thread 两级并行 | block 级任务划分 + 向量化元素并行 | **重新设计** | 本项目 `T.Kernel` 只接受一维 block 数 |
-| register 累加 | L0C 累加器（fp32）/ UB 中间缓冲 | 等价替换 | 累加顺序变化需评估精度影响 |
-| persistent kernel | `T.Persistent` | 等价替换 | — |
-| fused epilogue | `store_fixpipe` 后 UB 后处理 / CV 融合 | 等价替换或重新设计 | 取决于融合点在 Cube 侧还是 Vector 侧 |
-| grid-stride loop | block 内循环处理多任务 | **重新设计** | 一维 block 任务映射 |
-| 三维 Kernel（`T.Kernel(m,n,b)`） | 三维乘积展开为一维 block 数 | **重新设计** | 本项目不支持三维 Kernel（见 ascend-constraints.md） |
-| online 算法 / 分块累加 | 同款算法结构 | **保留** | 纯算法层，与硬件无关 |
+按任务平台 ruleset 核对目标执行单元、存储层级、并行结构、搬运和同步能力，以及对应 API 的实际版本证据。逐项记录源优化意图、目标能力与约束，再按 §5.2 决定处置方式。没有目标支持证据时，不把其他工具链的能力映射作为默认。
 
 ### 5.4 判定规则
 
@@ -194,18 +180,18 @@ NPU 侧设计方案（DESIGN.md §1–§11 以此为输入；§0 记录全过程
 ### 6.1 重设计输入
 
 - §0.5 中全部「重新设计」条目（含其性能意图，重设计必须承接该意图）。
-- NPU 硬件约束（[decision-tree.md](decision-tree.md) §3：分形限制 / 对齐 / 各级存储容量 / 一维 Kernel）。
-- 本项目 API 能力（以 `examples/` 与 `docs/Tilelang.language/` 佐证，禁止凭记忆猜 API）。
+- 目标硬件约束（读取任务平台 ruleset 和型号预算：执行结构、布局、对齐、各级存储容量与启动维度）。
+- 本项目 API 能力（以任务平台指定的模块、文档与兼容示例佐证，禁止凭记忆猜 API）。
 
 ### 6.2 重设计模式库
 
 | 模式 | 适用场景 | 设计要点 |
 |------|---------|---------|
-| **并行结构重设计** | block×thread 两级并行、grid-stride | 一维 `T.Kernel(total_blocks)`；元素级并行交给 Vector 向量化（`T.Parallel`）；矩阵计算交给 Cube 分形；block 数与任务映射重排 |
-| **归约重设计** | warp shuffle 树形归约、跨线程通信 | block 内：UB 中转 + `T.reduce_sum/max/min`；跨 block：workspace + `T.sync_block_set/wait` 核间同步；评估累加分组变化对精度的影响 |
-| **矩阵计算重设计** | 手工 mma + register tiling | `T.gemm`（Cube）+ `load_nd2nz`（NZ 布局进 L0A/L0B）+ `store_fixpipe`（L0C 出数）；满足 M/N/K 分形限制与 L0C 容量 |
-| **数据搬运重设计** | cp.async + SMEM 多级流水 | 分级搬运 `GM → L1 → L0A/L0B`（Cube）或 `GM → UB`（Vector）+ `T.Pipelined`；stage 数按 L1/UB 容量与 buffer 数重新计算 |
-| **跨阶段融合重设计** | 多 kernel + 全局同步、中间落回 GM | CV 融合：`Scope("Cube")` + `Scope("Vector")` + `T.sync_block_set/wait`；或单 kernel 内多阶段（L0C → UB 直连） |
+| **并行结构重设计** | block×thread 两级并行、grid-stride | 按目标平台的启动维度、执行单元与并行原语组织任务；保留源算法的并行意图并重排任务映射 |
+| **归约重设计** | warp shuffle 树形归约、跨线程通信 | block 内使用目标归约原语与片上中转；跨 block 按平台核对 workspace 和同步支持；评估累加分组变化对精度的影响 |
+| **矩阵计算重设计** | 手工 mma + register tiling | 目标矩阵单元、装载/出数 API 与布局；满足平台 M/N/K 分形及累加容量 |
+| **数据搬运重设计** | cp.async + SMEM 多级流水 | 按目标内存层级、搬运 API 和同步规则设计数据路径；缓冲级数按型号预算与并发驻留量计算 |
+| **跨阶段融合重设计** | 多 kernel + 全局同步、中间落回 GM | 按目标平台核对计算单元协作、阶段间数据路径和同步；或采用已支持的单 kernel 多阶段结构 |
 | **算法替代** | 数值等价的公式变形 | 如 softmax 减 max 稳定化、除法转乘倒数、rsqrt 替代 sqrt+div、公共子表达式消除、高代价算子降代换；必须给出数学等价或容差内等价论证。采纳项落入 DESIGN.md §1.6.1（数学等价优化），并在 skill Phase 2 继续对重设计后的完整公式做系统优化。**算法族的候选调研与对比在 skill Phase R 完成（DESIGN.md §1.6.0，含在线算法/复杂度/硬件亲和维度）——算法替代模式采纳的候选须与 §1.6.0 调研结论一致，不得未经调研直接替换** |
 | **host 预处理内移** | im2col 等 host 侧展开 | 优先 kernel 内展开；若保留 host 侧须遵守 host 约束（只允许 stride/shape 元数据视图操作，禁止改动输入张量真实内容，见 ascend-constraints.md §4） |
 

@@ -33,7 +33,7 @@ import sys
 
 from pathlib import Path
 
-from platform_context import add_platform_args, get_platform, run_with_platform
+from platform_context import add_platform_args, get_platform, run_with_platform, knowledge_entry_applies
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
 
@@ -90,6 +90,8 @@ def parse_frontmatter_entries(path: str, source: str) -> list:
                 "path": rel,
                 "body": body,
                 "device": fm.get("device", ""),
+                "hardware_id": fm.get("hardware_id", ""),
+                "toolchain_id": fm.get("toolchain_id", ""),
                 "facets": {
                     k: fm.get(k, "")
                     for k in ("kind", "family", "apis", "dtype", "status", "repro")
@@ -111,8 +113,10 @@ def parse_heading_entries(path: str, source: str, pattern: str) -> list:
         body = text[m.end() : end]
         title = m.group(2).strip()
         eid = re.match(r"([A-Za-z]+-[\d\-a-zA-Z]+)", title)
+        fields = dict(re.findall(r"(?m)^- ([a-z_]+):[ \t]*(.*)$", body))
         entries.append(
             {
+                **{k: fields.get(k, "") for k in ("type", "hardware_id", "toolchain_id", "toolchain_stamp")},
                 "source": source,
                 "id": eid.group(1) if eid else title[:40],
                 "title": title[:120],
@@ -220,7 +224,7 @@ def main() -> int:
 
 def run(args) -> int:
 
-    entries = build_index()
+    entries = [e for e in build_index() if knowledge_entry_applies(e)]
     platform = get_platform()
     if platform.hardware is not None:
         eligible = {entry["source"] for entry in platform.measurements()}

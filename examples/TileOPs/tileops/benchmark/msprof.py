@@ -1,20 +1,9 @@
-"""msprof op-based kernel profiling for NPU.
+"""Kernel profiling through the task-selected toolchain.
 
-Provides :func:`bench_kernel_msprof` — an alternative to the events-based
-:func:`bench_kernel` that uses ``msprof op`` to obtain pure kernel latency
-(no launch overhead).
-
-Workflow:
-  1. Generate a standalone Python script that reconstructs the functor
-     and runs it ``warm_up + launch_count`` times.
-  2. Execute the script under::
-
-     msprof op --kernel-name=xxx --output=xxx \
-               --launch-count=10 --warm-up=5 python xxx.py
-
-  3. Parse ``OpBasicInfo*.csv`` in the output directory to extract
-     ``Task Duration(us)``.
-  4. Return the median latency across measured launches in **milliseconds**.
+The public msprof API and environment names are retained for reporting compatibility.
+The selected adapter builds the profiler command and decodes its native output;
+the shared workflow reconstructs the functor, runs collection, and returns the
+median measured kernel latency in milliseconds.
 
 Configuration (environment variables):
   TILEOPS_PROF_MODE           — "msprof" (default) or "events"
@@ -30,8 +19,6 @@ Configuration (environment variables):
 
 from __future__ import annotations
 
-import csv
-import glob
 import inspect
 import json
 import logging
@@ -249,59 +236,8 @@ def _generate_callable_script(
 
 
 def _parse_op_basic_info(output_dir: str) -> tuple[list[float], str, list[str]]:
-    """Return durations, the first op name, and all captured op names.
-
-    The msprof output directory has the structure::
-
-        <output_dir>/
-          └── OPPROF_<timestamp>_<random>/
-              └── <OpName>/
-                  ├── 0/OpBasicInfo_<ts>.csv
-                  ├── 1/OpBasicInfo_<ts>.csv
-                  ...
-                  └── N/OpBasicInfo_<ts>.csv
-
-    Each CSV has one row with a ``Task Duration(us)`` column.
-    """
-    csv_files = sorted(
-        glob.glob(
-            os.path.join(output_dir, "**", "OpBasicInfo*.csv"),
-            recursive=True,
-        )
-    )
-    if not csv_files:
-        raise FileNotFoundError(f"No OpBasicInfo*.csv found under {output_dir}")
-
-    durations: list[float] = []
-    op_name = ""
-    op_names: set[str] = set()
-    for csv_path in csv_files:
-        with open(csv_path, "r", newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                val = row.get("Task Duration(us)")
-                if val is not None and val.strip():
-                    try:
-                        durations.append(float(val))
-                    except ValueError:
-                        _logger.warning(
-                            "Non-numeric Task Duration(us) in %s: %r",
-                            csv_path,
-                            val,
-                        )
-                name_val = row.get("Op Name", "")
-                if name_val and name_val.strip():
-                    captured_name = name_val.strip()
-                    op_names.add(captured_name)
-                    if not op_name:
-                        op_name = captured_name
-
-    if not durations:
-        raise ValueError(
-            f"No Task Duration(us) values found in OpBasicInfo CSVs under {output_dir}"
-        )
-
-    return durations, op_name, sorted(op_names)
+    """Read the selected toolchain result, retaining the reporting API."""
+    return _task_adapter().benchmark_profile_result(output_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +352,13 @@ def _derive_kernel_name_from_prim_func(
 # ---------------------------------------------------------------------------
 
 
+def _task_adapter():
+    from tileops.utils.task_platform import get_task_platform
+
+    context = get_task_platform()
+    return context.adapter
+
+
 def bench_kernel_msprof(
     functor: Callable,
     args: tuple = (),
@@ -426,12 +369,11 @@ def bench_kernel_msprof(
     output_dir: Optional[str] = None,
     keep_output: bool = False,
 ) -> tuple[float, str]:
-    """Benchmark a kernel using ``msprof op``.
+    """Benchmark a kernel using the task-selected profiler.
 
     Generates a standalone Python script that reconstructs *functor* and
     runs it ``warm_up + launch_count`` times, executes the script under
-    ``msprof op``, then parses ``OpBasicInfo*.csv`` to extract
-    ``Task Duration(us)``.
+    the selected profiler, then asks the same adapter to decode native latency samples.
 
     Args:
         functor: An Op instance (reconstructed via constructor introspection)
@@ -487,10 +429,12 @@ def bench_kernel_msprof(
     )
     warm_up = warm_up if warm_up is not None else int(os.environ.get("TILEOPS_MSPROF_WARM_UP", "5"))
 
-    msprof_bin = shutil.which("msprof")
+    adapter = _task_adapter()
+    profiler = adapter.profiler
+    msprof_bin = shutil.which(profiler)
     if msprof_bin is None:
         raise RuntimeError(
-            "msprof not found in PATH. Install Ascend profiler tools "
+            f"{profiler} not found in PATH. Install Ascend profiler tools "
             "(usually under /usr/local/Ascend/.../tools/profiler/bin/)."
         )
 
@@ -606,16 +550,8 @@ def bench_kernel_msprof(
                     if os.path.isdir(entry_path):
                         shutil.rmtree(entry_path, ignore_errors=True)
 
-            cmd = [msprof_bin, "op"]
-            if kn is not None:
-                cmd.append(f"--kernel-name={kn}")
-            cmd.append(f"--output={prof_output_dir}")
-            cmd.append(f"--launch-count={launch_count}")
-            cmd.append(f"--warm-up={warm_up}")
-            # These two lines below avoid excessive profiling time caused by parsing
-            # too much data; here we only care about latency, not the detailed specifics.
-            cmd.append("--aic-metrics=Roofline")
-            cmd.append("--dump=off")
+            cmd = adapter.benchmark_profiler_args(kn, prof_output_dir, launch_count, warm_up)
+            cmd[0] = msprof_bin
             cmd.extend([sys.executable, script_path])
 
             _logger.info("msprof command: %s", " ".join(cmd))
@@ -653,7 +589,7 @@ def bench_kernel_msprof(
 
         if not durations_us:
             raise RuntimeError(
-                f"msprof op failed to produce OpBasicInfo CSV data.\n"
+                f"{profiler} failed to produce native latency samples.\n"
                 f"Tried kernel names: {tried_kernel_names}\n"
                 f"--- last stdout ---\n{result.stdout}\n"
                 f"--- last stderr ---\n{result.stderr}\n"

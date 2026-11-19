@@ -2,11 +2,19 @@
 
 ## 环境与硬件
 
-以 [TileOPs ascend950 工具链说明](https://github.com/yyttt6/TileOPs/blob/ascend950/docs/ascend950/toolchain.md) 和同目录的锁文件为准。使用 ARM64、官方 TileLang 0.1.15 wheel、CANN 9.2.0 release 编译 SDK、独立 CANN 9.1.0 runtime/OPP，以及锁定的 Python、PyTorch、torch-npu 和 C++ 编译器。按上游文档设置 ASCEND_HOME_PATH、ASCEND_RUNTIME_ROOT、ASCEND_NPU_ARCH=dav-3510 以及动态库路径。
+编译环境参考 [TileOPs ascend950 工具链说明](https://github.com/yyttt6/TileOPs/blob/ascend950/docs/ascend950/toolchain.md)，版本和文件指纹以本平台的 toolchain.lock.json 为准。使用 ARM64、官方 TileLang 0.1.15 wheel、CANN 9.2.0 release 编译 SDK、独立 CANN 9.1.0 runtime/OPP，以及锁定的 Python、PyTorch、torch-npu 和 C++ 编译器。按上游文档设置 ASCEND_HOME_PATH、ASCEND_RUNTIME_ROOT、ASCEND_NPU_ARCH=dav-3510 以及动态库路径。
 
 用以下命令在 CPU 上检查软件版本和文件指纹。真机上改用 --probe，查询 torch.npu.get_device_properties 并验证设备型号和工具链。正式运行前用同一组合初始化或验证任务状态。
 
     python3 .agents/tools/statectl.py platform --hardware ascend-950dt-9582 --toolchain ascend --check-environment
+
+## API 证据与执行环境
+
+API 命名空间是 `tilelang.ascend.language`。用激活环境中的 Python 在任务目录进行静态查询，先核对 `T.__file__`，再按该安装位置的导出、定义、签名与本平台 kernel 模板查证。仓库根的同名源码包会遮蔽安装包，静态查询不要在仓库根运行。仓库 `tilelang/language/` 和 `docs/Tilelang.language/` 属于另一工具链，不能作为本工具链 API 可用性、分形、同步或模式的依据。
+
+编程模式使用本平台 SIMD/SIMT/Cube/混合选项；SIMT 的逐元素表达式放在 `T.SimtVF` 内。是否有某个符号或某种写法，以选定模块和当前版本为准。算法候选可以复用数学思路，API 与代价结论仍需当前组合的证据。
+
+`statectl platform` 返回的 `execution` 选择设备或仿真启动方法。仿真时，任何创建 NPU 张量或执行 kernel 的脚本（包括设计期原型）均按其中 `prototype_command` 或 `precision_command` 启动；先进入任务目录，传绝对脚本路径，输出目录每次新建。仅导入模块和检查签名可直接 Python。主流程向所有阶段完整传递该执行上下文。
 
 ## 设计、实现与排错
 
@@ -16,26 +24,26 @@
 
 ## 性能采集
 
-950 使用上游 guarded torch_npu.profiler 协议。各次设备执行区间并集的算术均值为 mean_device_busy_union_us，原始目录记入 ascend_profile_path。先通过精度验证，使用相同 workload、输入规格和站点时钟对比候选与 current best。
+沿用项目原有 kernel-only Task Duration(us) 口径、A/B 交错采集、workload inventory、perf_records.jsonl 和 winner 协议。950 适配器调用 CANN 自带的 msopprof，读取 OpBasicInfo CSV，原始证据仍写 msprof_raw_path，主指标仍为 msprof_task_duration。warm-up、launch-count 和重试继续由原有流程控制。
 
-- 独立算子公开模板中的 profile_workload(**params)，返回构建好的 callable 和输入 tuple。运行下列命令，guard 成功退出后才会生成 measurement.json。从中读取 duration_us，并确认 guard_exit_code 为 0。原始数据在结果目录的 profiles/。
+使用原有 .agents/tools/ab_test.py 和实验 runner，传入 --task-dir <任务目录>；候选按平台规则先验精度，再比较同一 workload 的 Task Duration。
 
-      python3 .agents/tools/toolchains/ascend_profile.py --tileops-root <950仓> --kernel <候选.py> --workload '<JSON参数>' --clock-config <时钟配置> --run-dir <新目录> --owner <占卡标识>
-
-- TileOPs 用以下命令。上游的 --implementation-factory 模块:函数 可在同轮对比实现。替换 benchmark 子命令为 summary 并传入 --run-dir <结果目录> 可读取各 workload 和实现的均值。--case-regex 和 --verify-only 用于单用例或正确性冒烟。
-
-      python3 .agents/tools/toolchains/ascend_tileops.py benchmark --tileops-root <950仓> --op <manifest键> --run-dir <新目录> --clock-config <时钟配置> --owner <占卡标识>
-
-- 按 Stage 4 工作负载协议填写 inventory、perf_records.jsonl 和 winner。TileOPs 的完整 workload 从上游 benchmark cases 枚举。保留真实运行的原始目录和当前任务的 statectl platform --task-dir 证据。
-
-## CG-950-batch-barrier
-
-工具链锁记录的未认证功能为 ascend.batch_schedule 的跨 block barrier 依赖。需要该依赖的设计在取得独立验证前应选择已有支持路径。
+能力缺口及其证据见 knowledge.capability_gaps 指定的数据文件。
 
 ## TileOPs 工程迁移
 
-使用指定的独立 TileOPs ascend950 checkout。开发规则、manifest、benchmark cases 与 backend 注册参考 [上游开发说明](https://github.com/yyttt6/TileOPs/blob/ascend950/docs/ascend950/development.md)。
+沿用项目内 examples/TileOPs/ 的原有七文件脚手架、GPU 源函数提取、逐函数 Stage 1/2/3、baseline/perf_opt 切换和 Stage 5 报告流程。GPU 源仓使用任务提供的路径。
 
-Stage 0 提取源函数，在 Agent 仓的 examples/{op_slug}/ 下保存 .migration_meta.json。保留现有 op_name（manifest 键）、op_slug、family、extracted_functions 及源代码定位。增加 tileops_root（目标 950 checkout）和 wrapper_path（相对于目标 src/tileops/kernels/ascend/ 的 Python 文件路径）。按目标仓布局准备该算子的 manifest、cases 和 Ascend wrapper，沿用已有的上游实现作为范例。
+Stage 0 使用 integration.scaffold_skill 指定的现有 add-npu-op 技能。该技能中的 NPUIR 编程示例在本平台按上述 ascend API 和模板实现；manifest、wrapper、测试、benchmark 和 .migration_meta.json 保留原有布局和字段。
 
-Stage 5 在 Agent 仓根执行配置中的 integration.script --meta <meta_path>，把 Stage 3 kernel 和 DESIGN.md 快照复制到 Ascend wrapper 同目录的 {op_slug}_kernel/。在该算子的 wrapper 中用 from .{op_slug}_kernel.{func} import ... 导入各集成实现，保持原有调用签名、dtype 和参数映射，按上游 register_kernel_type 注册 ascend backend。先进行单用例冒烟，然后执行完整算子正式 benchmark。将 receipt.json、result.json 和原始采集保留在 examples/{op_slug}/ 下本次运行目录。在集成包写 integration_log.md 和 integration_report.json，报告引用格式为 {"run_dir": "<相对于 examples/{op_slug} 的本次运行目录>"}。Stage 5 使用完整用例的正式运行及源码指纹验收。会话耗时记录在任务原有 Markdown 中。
+Stage 5 在 examples/TileOPs/ 下执行原有 integration.script --meta <meta_path> --task-dir <聚合任务绝对目录>。集成仍复制 kernel 和 DESIGN.md、生成聚合导出并接线原有 wrapper；ascend 后端不使用 NPUIR 的 Developer/Expert 模式声明，wrapper.ascend_mode 置为 None。
+
+从同一目录运行 TILEOPS_TASK_DIR=<聚合任务绝对目录> python -m tileops.reporting.cli run --op {op_name} --prof-mode msprof。报告链路通过保存的任务选择调用 950 profiler，继续产出原有 run.json、report.md 和 report.html，integration_report.json 仍引用 run_json。正确性必须通过；benchmark 为 partial 时沿用原有记录与验收规则。会话耗时继续使用原有 Markdown 和 render --with-session-timing。
+
+## 工程公共工具与资源规则
+
+工程中所有预算查询、集成和 report 都设置 `TILEOPS_TASK_DIR=<保存的平台任务目录>`。纯数学 tiling 计算可用 `tileops.utils.tiling`，明确传入当前平台核验的 alignment 和 budget；NPUIR 的 reduction 宏、H200 列上限及其 8 KiB 分配预留不是本工具链的默认规则。向量、归约和同步的实际 API 仍按 `tilelang.ascend.language` 查证。
+
+采集器为 `msopprof`，命令参数由本工具链适配器的 `profiler_args` 提供；使用原 A/B 与实验 runner 并传 task-dir，不照抄 NPUIR 的 `msprof op` 或 dump 参数。分核查询使用 `torch.npu.get_device_properties` 分别记录 Cube/Vector；不要使用 NPUUtils 或固定乘二替代本平台查询。
+
+仿真执行顺序：所有模型进程串行运行，包括各层精度与主流程二次校验；不要并发启动多个模型争用 CPU 和内存。精度层可用单次 --level all 覆盖，以减少模型启动开销。

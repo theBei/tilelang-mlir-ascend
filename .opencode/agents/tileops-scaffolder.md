@@ -13,8 +13,6 @@ model: gateway/glm-5.3-flash
 
 先完整读取任务平台配置 `integration.scaffold_skill` 指定的工程脚手架技能。按其中的引用定位适配说明和提取工具。
 
-Stage 0 的目标仓布局、文件列表、检查和元数据以 `integration.scaffold_skill` 为准。下文 7 文件流程及路径适用于既有 NPUIR skill。
-
 ## 输入 / 输出契约
 
 | 类型 | 内容 | 说明 |

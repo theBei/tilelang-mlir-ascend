@@ -17,7 +17,7 @@
 
 当 `tilelang-op-optimize` 进入 Phase 2 优化闭环的每一轮“本轮优化点分析”时，读取本文件。
 
-本文件不把 kernel 强行归到某个固定瓶颈大类，而是把 `msprof op` 数据、kernel 代码结构和历史迭代结果转换成：
+本文件不把 kernel 强行归到某个固定瓶颈大类，而是把 `平台采集工具` 数据、kernel 代码结构和历史迭代结果转换成：
 
 ```text
 本轮诊断上下文 -> 当前现象 -> 候选优化点 -> 独立实验分支 -> 本轮 winner
@@ -42,8 +42,8 @@
 
 - `{op}.py`、current best 或当前实验分支 `perf_opt/{op}_round{iter}_{opt_id}.py`。
 - `DESIGN.md` 中的性能目标章节。
-- [hardware-context.md](hardware-context.md) 中的硬件上下文。
-- 按 [profile-collection.md](profile-collection.md) 从 benchmark 的非 smoke workload 逐 kernel 采集到的 profiling 结果（`msprof op` 是唯一时延口径）。
+- 任务平台的型号配置、运行时核数及适用的组合测量；旧任务按兼容入口读取历史资料。
+- 按 [profile-collection.md](profile-collection.md) 从 benchmark 的非 smoke workload 逐 kernel 采集到的 profiling 结果（`平台采集工具` 是唯一时延口径）。
 - `perf_opt/opt_log.md` 中的 `Performance Test Data` 最小表。
 - 已尝试过的优化点、实验分支结果、keep/rollback 结论和最新 current best。
 
@@ -64,7 +64,7 @@ captured_op_name 能追溯到 target_kernel_name 或目标 TileLang kernel
 Task Duration 来自 OpBasicInfo.csv 中 captured_op_name 对应记录
 不是 Cast / Mul / OnesLike / Random 等框架小算子
 raw_profile_dir 存在且能追溯到本次 command
-同一轮采集未出现并发 msprof op 或输出目录覆盖
+同一轮采集未出现并发 平台采集工具 或输出目录覆盖
 ```
 
 按 `kernel_id + workload_id` 分别诊断，不把不同 workload 的 Task Duration 合成平均数后下结论。smoke 不进入性能诊断，只用于合并版精度回归。
@@ -170,7 +170,7 @@ defer：证据不足，暂缓
 
 ## Step 4：匹配瓶颈模式
 
-如果当前现象需要模式参考，读取 [bottleneck-patterns.md](bottleneck-patterns.md)，用本轮诊断上下文辅助生成候选优化点。
+如果当前现象需要模式参考，读取平台 `knowledge.bottlenecks` 指定的资料，用本轮诊断上下文辅助生成候选优化点。
 
 匹配时注意：
 
@@ -208,7 +208,7 @@ perf_opt/mish_round2_op3.py
 
 如果某个优化点本质上是参数选择，可以在该分支内做小范围参数实验；但搜索空间必须服务同一个优化点，不能混入其它结构性改动。
 
-结构性优化分支通过正确性且方向有效后，不能只保留单个手写配置。必须围绕该结构暴露的关键参数做一轮 coarse autotune 或等价手动粗搜；例如 `T.serial` 多块迭代至少搜索 `block_size × num_cores`。autotune winner 不是最终结论，还要检查 top-k 配置和 winner 邻域，必要时手动/脚本精搜，再用最终 winner进入 `msprof op` 复测。
+结构性优化分支通过正确性且方向有效后，不能只保留单个手写配置。必须围绕该结构暴露的关键参数做一轮 coarse autotune 或等价手动粗搜；例如 `T.serial` 多块迭代至少搜索 `block_size × num_cores`。autotune winner 不是最终结论，还要检查 top-k 配置和 winner 邻域，必要时手动/脚本精搜，再用最终 winner进入 `平台采集工具` 复测。
 
 若优化点涉及 `num_cores / T.serial` 多块迭代，不能只测一个配置。先计算 `num_logical=ceildiv(N, block_size)`，再构造候选：
 
@@ -217,7 +217,7 @@ perf_opt/mish_round2_op3.py
 - `num_logical` 附近可整除或低 imbalance 的候选，记录 `min_iters_per_task / max_iters_per_task`。
 - 当前 flat-grid 端点只作对照，不默认作为 winner。
 
-每个配置都记录 `msprof Task Duration` 和 imbalance。若甜点区内 `Task Duration` 差异小于噪声阈值，先用更大 `launch-count` 复测；复测后仍打平时用 imbalance、整除性和资源占用决胜，不要用单次 msprof 结果对平区内候选排序。
+每个配置都记录 `平台 Task Duration` 和 imbalance。若甜点区内 `Task Duration` 差异小于噪声阈值，先用更大 `launch-count` 复测；复测后仍打平时用 imbalance、整除性和资源占用决胜，不要用单次 msprof 结果对平区内候选排序。
 
 ---
 
@@ -227,17 +227,17 @@ perf_opt/mish_round2_op3.py
 
 ```text
 L0 精度回归
-msprof op 性能采集
+平台采集工具 性能采集
 profile 有效性校验
 ```
 
 评估规则：
 
 - 只比较同一 `kernel_id + workload_id` 下的 valid profile。
-- 有一个或多个分支提升时，先按本轮主指标（`msprof op Task Duration(us)`）选择候选 winner；Task Duration 打平时，用 imbalance、UB/L0 余量和代码复杂度决胜。
+- 有一个或多个分支提升时，先按本轮主指标（`平台采集工具 Task Duration(us)`）选择候选 winner；Task Duration 打平时，用 imbalance、UB/L0 余量和代码复杂度决胜。
 - 每个 workload 完成迭代后，把其 winner 尝试合入同一个 kernel；先尝试无条件优化，若本 kernel 其他 tune workload 有可信回退，再尝试核内 shape/dtype/参数分支并重新编译、验证。
 - 只有合并后的实际 kernel 通过本 kernel 全部 tune workload 的精度和非回退检查、以及 smoke 精度检查，才能更新已合并 current best。
-- 小 kernel（Task Duration <20us）或逼近带宽/搬运地板的 workload，<5% 量级的候选差异须先经**交错 A/B/A/B 多 run 协议**裁决：≥3 次独立 `msprof op` run、候选与基线交替次序、合并中位数比较——同 kernel 跨 run 存在 ±3–5% 快/慢双态（BP_run_state_bimodality），单 run median-of-15 可能把双态膨胀误判为增益或回退（lerp_tensor 实证：单轮 -5.2% 复测收缩为 -3.1%）。协议在首次出现 <5% 差异时即前置使用，而非采纳后复核。工具化执行：`python3 .agents/tools/ab_test.py --a <baseline_kernel> --b <candidate_kernel> ...`（交错多 run + 合并中位差 + 配对方向一致性判定）。
+- 小 kernel（Task Duration <20us）或逼近带宽/搬运地板的 workload，<5% 量级的候选差异须先经**交错 A/B/A/B 多 run 协议**裁决：≥3 次独立 `平台采集工具` run、候选与基线交替次序、合并中位数比较——同 kernel 跨 run 存在 ±3–5% 快/慢双态（BP_run_state_bimodality），单 run median-of-15 可能把双态膨胀误判为增益或回退（lerp_tensor 实证：单轮 -5.2% 复测收缩为 -3.1%）。协议在首次出现 <5% 差异时即前置使用，而非采纳后复核。工具化执行：`python3 .agents/tools/ab_test.py --a <baseline_kernel> --b <candidate_kernel> ...`（交错多 run + 合并中位差 + 配对方向一致性判定）。
 - 如果合并版只在目标 workload 提升，但本 kernel 其他 tune workload 明显回退，且核内条件分支不能安全解决，记录 rollback 或 defer，不更新已合并 current best；不得转移到 Python factory、op 层或 wrapper 分派。
 - 如果所有分支都无提升、无效或阻塞，current best 保持不变。
 - 其它分支记录为 `config_no_gain / family_no_gain / invalid / blocked / defer`。
@@ -331,7 +331,7 @@ smoke workload 只列精度结果，不填性能时延或参与性能门禁。
 - 同一轮所有实验分支都必须从同一个 current best 派生。
 - 组合优化只在单点优化已经证明有效后再做。
 - 每个实验分支都必须跑 L0 精度回归。
-- 每个有效实验分支都必须用 `msprof op` 重新采集目标 kernel；候选差异落入噪声阈值时先用更大 `launch-count` 复测，不要用单次 msprof 结果对平区内候选排序。
+- 每个有效实验分支都必须用 `平台采集工具` 重新采集目标 kernel；候选差异落入噪声阈值时先用更大 `launch-count` 复测，不要用单次 msprof 结果对平区内候选排序。
 - 更新已合并 current best 前，必须确认本 kernel 全部 tune workload 不发生可信性能回退，并完成 smoke 精度回归。
 - 区分 `config_no_gain` 和 `family_no_gain`；一个配置失败不能否定整类优化方向。
 - 如果所有候选优化点都不够直接，先补充 profile 或检查 profile 口径，不要盲目扩大搜索空间。

@@ -12,6 +12,8 @@ TOOLS = REPO_ROOT / ".agents" / "tools"
 
 
 def run_tool(name: str, *args: str) -> tuple[int, dict | str]:
+    if not any(arg in args for arg in ("--hardware", "--toolchain", "--task-dir")):
+        args = (*args, "--hardware", "ascend-910b2c", "--toolchain", "npuir")
     proc = subprocess.run(
         [sys.executable, str(TOOLS / name), *args],
         capture_output=True,
@@ -194,6 +196,9 @@ def test_stale_check_and_runner_share_saved_commit(tmp_path, monkeypatch, capsys
         ("abcdef1234", {"KB-different"}, 0),
     ):
         runtime = {"toolchain_stamp": {**stamp, "tilelang_commit": commit}}
+        assert platform.adapter.classify_stamp(
+            stamp["raw"], runtime["toolchain_stamp"]
+        ) == ("unknown" if commit is None else "fresh")
         with using_platform(replace(platform, runtime=runtime)):
             assert kb_stale_check.run(args) == 0
             report = json.loads(capsys.readouterr().out)

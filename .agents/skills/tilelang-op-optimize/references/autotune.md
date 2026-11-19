@@ -4,47 +4,7 @@
 
 当 Phase 2 的候选优化点包含 `autotune 参数搜索` 时，读取本文件。
 
-本文件不复制 TileLang Ascend autotune 的完整 API 和示例，避免 `tilelang-mlir-ascend` 更新后两边内容不同步。具体用法、参数、示例和实现细节，以 `tilelang-mlir-ascend` 源库为准。
-
-## 先读这些源文件
-
-源码根目录：
-
-```text
-tilelang-mlir-ascend/
-```
-
-优先读取官方/源码侧文档：
-
-1. `docs/Autotune使用指南.md`
-2. `docs/developer/EnvironmentVariables.md`
-
-需要确认实现细节时读取：
-
-1. `tilelang/autotuner/tuner.py`
-2. `tilelang/autotuner/param.py`
-3. `tilelang/profiler/bench.py`
-
-需要参考可运行示例时读取：
-
-1. `testing/autotune/example_gemm_autotune.py`
-2. `testing/autotune/example_gemm_carver.py`
-3. `testing/autotune/example_elementwise_add_autotune.py`
-4. `testing/autotune/example_elementwise_add_carver.py`
-5. `testing/autotune/gemv_autotune.py`
-6. `testing/autotune/gemv_carver.py`
-7. `testing/autotune/reduce_min_autotune.py`
-8. `testing/autotune/reduce_min_carver.py`
-9. `testing/autotune/flash_attn_npuir_autotune.py`
-
-需要参考结构性优化模式时，优先搜索并阅读：
-
-1. `examples/elementwise/example_elementwise_exp2.py`（`T.serial` 多块迭代模式）
-2. `examples/elementwise/vec_add_2d_multi_buffer.py`（multi-buffer / 多缓冲模式）
-3. `examples/elementwise/` 下其它 activation、unary、binary 示例
-4. 历史优化目录或同类算子的 `perf_opt/opt_log.md`
-
-如果历史目录存在 `Optimize.md`，只能把它当作快速摘要；完整过程仍以 `perf_opt/opt_log.md` 为准。
+具体 autotune 能力、API、源码与可运行示例由任务 ruleset 提供。先核对当前工具链支持的搜索接口，再读取平台兼容的实例；不支持自动搜索时，按原流程使用等价手动粗搜和精搜。历史 Optimize.md 只作摘要，完整过程以 perf_opt/opt_log.md 为准。
 
 ## 在本 skill 中的使用规则
 
@@ -53,7 +13,7 @@ Autotune 属于 Phase 2 的一个实验分支，通常放在结构性优化之�
 执行前必须满足：
 
 - baseline kernel 已经通过正确性测试。
-- 已经通过 `msprof op` 得到目标 kernel 的 baseline Task Duration。
+- 已经按任务平台采集协议取得目标 kernel 的 baseline Task Duration。
 - kernel 代码中已经暴露显式可调参数，例如 block/tile shape、K tile、pipeline stage、buffer 数量或 vector tile shape。
 - 如果结构性优化已经识别为 `T.serial` 多块迭代，应显式暴露 `block_size`、`num_cores`、`iters_per_core` 或等价参数。
 - 若搜索 `num_cores`，搜索空间必须覆盖 AI Core Count 附近、整数倍 AI Core Count、任务并发甜点区、低 imbalance 候选和 flat-grid 端点，不能只测单点。
@@ -64,13 +24,13 @@ Autotune 属于 Phase 2 的一个实验分支，通常放在结构性优化之�
 - `T.serial` 多块迭代分支至少粗搜 `block_size × num_cores`；`iters_per_core` 若由 `ceildiv(num_logical_blocks, num_cores)` 推导，不必单独暴露。
 - `T.Pipelined` / multi-buffer 分支至少粗搜 tile size、stage 或 buffer 数中实际暴露的关键参数。
 - coarse search 只服务当前结构，不混入其它结构性改动；若 coarse winner 周围存在甜点区，再扩展邻近参数精搜。
-- coarse search 结果只用于筛候选，最终 winner 必须单独用 `msprof op` 复测。
+- coarse search 结果只用于筛候选，最终 winner 必须单独用 `平台采集工具` 复测。
 
 Autotune 后邻域精搜：
 
 - 记录 autotune winner 和 top-k 配置；若 autotune API 不能直接导出 top-k，则至少保留所有已测 config 的 latency / correctness / failure reason。
 - 围绕 winner 做邻域搜索，例如 `block_size` 上下相邻合法档位、`num_cores` 上下相邻并发档位、低 imbalance 候选和资源余量更好的候选。
-- 若 autotune latency 与 `msprof Task Duration` 排序冲突，以独立复测的 `msprof op` 决胜。
+- 若 autotune latency 与 `平台 Task Duration` 排序冲突，以独立复测的 `平台采集工具` 决胜。
 - 邻域精搜可以手动或脚本执行，但必须记录 search space、结果和为什么停止扩展。
 
 执行时必须记录：
@@ -88,8 +48,8 @@ Autotune 后邻域精搜：
 - 用 best config 生成当前 autotune 实验分支，例如 `perf_opt/{op}_round{iter}_{opt_id}.py`。
 - 若执行了邻域精搜，用精搜 winner 生成最终候选分支，并记录它与 autotune winner 的关系。
 - 跑 L0 精度回归。
-- 对 winner 单独跑 `msprof op`。
-- 最终性能报告使用单独复测的 `msprof op`，不直接使用 autotune latency 作为最终结果。
+- 对 winner 单独跑 `平台采集工具`。
+- 最终性能报告使用单独复测的 `平台采集工具`，不直接使用 autotune latency 作为最终结果。
 
 ## 实验批处理 runner（T-4）
 
@@ -107,6 +67,6 @@ Phase 2 的实验分支执行（L0 回归 → msprof 采集 → perf_records.jso
 
 对 elementwise / activation / 轻量 vector kernel，先判断是否存在 launch/scheduling overhead。若 `Block Dim` 远超物理核数，优先把 `T.serial` 多块迭代作为结构性改写，再 autotune `block_size` 与 `num_cores`，不要只扩大 block size 或 pipeline stage 搜索空间。`num_cores` 不只是在减少任务数，也是在给硬件提供合适的软件任务并发；太少会并发不足，太多会派发开销过高。
 
-如果所有 config 的 `msprof Task Duration` 接近，先用更大 `launch-count` 复测。复测后仍打平时，使用 imbalance、整除性和资源余量决胜；若仍无法区分，回到 Phase 2 重新分析当前现象，而不是继续扩大搜索空间。
+如果所有 config 的 `平台 Task Duration` 接近，先用更大 `launch-count` 复测。复测后仍打平时，使用 imbalance、整除性和资源余量决胜；若仍无法区分，回到 Phase 2 重新分析当前现象，而不是继续扩大搜索空间。
 
 如果 `tilelang-mlir-ascend` 中 autotune API、参数名或示例发生变化，以源库文件为准，更新本文件中的引用路径或极少量执行规则即可。

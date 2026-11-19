@@ -1,6 +1,6 @@
 # 设计期硬件成本模型与 roofline 估算标准（D-2）⭐
 
-> **单一事实源**：本文件定义**设计期定量性能估算协议**（何时算、怎么算、算完落哪）。硬件常数**数值表**的唯一事实源是 `tilelang-op-optimize` skill 的 [pattern-library/constants.md](../../tilelang-op-optimize/references/pattern-library/constants.md)（条目带版本戳与来源条目 ID，evolver 蒸馏新 D 类常数时追加进该表，Tier 0）——本文件不复制数值，只定义使用协议；两文件同步演进。
+> **单一事实源**：本文件定义**设计期定量性能估算协议**（何时算、怎么算、算完落哪）。硬件常数**数值表**的唯一事实源是 任务平台 cost_measurements 与 knowledge.patterns 下匹配型号、工具链版本和 workload 的常数记录（条目带版本戳与来源条目 ID，evolver 蒸馏新 D 类常数时追加进该表，Tier 0）——本文件不复制数值，只定义使用协议；两文件同步演进。
 
 新任务的正式估算从平台上下文 `cost_measurements` 选择与型号、工具链版本和负载条件匹配的数据。历史常数表保留原始来源，适用条件缺失的记录用于参考。缺少核验容量时，列明已算出的用量与待核验的上限。调优和蒸馏回写正式组合测量时，登记型号、工具链 ID、实际版本戳、指标、数值、单位、负载条件与来源。
 
@@ -27,7 +27,7 @@
 
 1. optimizer Phase 1 baseline 采集完成后，在 `perf_opt/opt_log.md` Baseline 段追加**「设计估算 vs 实测」偏差行**：DESIGN.md §1.6.0 估算下界 vs baseline 的平台实测时延，偏差 >2x 时注明偏差项（流量/发射/容量哪项失准）；
 2. 该偏差行成为 `[DESIGN_LIMIT]` 归因的量化证据（perf-feedback.md §1 触发条件①的支撑材料——设计期估算系统性乐观/悲观是设计假设被实测推翻的直接形态）；
-3. 调优中发现**新的硬件常数**（如新的端口带宽/发射代价/容量上限）→ Phase 4 回写 pattern-library/constants.md 新条目（Tier 0，含三件套 + repro，ED-C 责任前移），并在偏差行注明"估算失准根源 = 该常数设计期未知"。
+3. 调优中发现**新的硬件常数**（如新的端口带宽/发射代价/容量上限）→ Phase 4 回写 平台 knowledge.patterns 下的 constants.md 新条目（Tier 0，含三件套 + repro，ED-C 责任前移），并在偏差行注明"估算失准根源 = 该常数设计期未知"。
 
 ## 4. 与现有机制的衔接
 

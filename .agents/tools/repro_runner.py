@@ -103,7 +103,7 @@ def run_one(path: str, timeout: int) -> dict:
             }
     try:
         proc = subprocess.run(
-            [sys.executable, os.path.basename(path)],
+            get_platform().adapter.execution_command([sys.executable, os.path.abspath(path)]),
             cwd=repro_dir(),
             capture_output=True,
             text=True,

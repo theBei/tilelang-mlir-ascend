@@ -95,8 +95,8 @@
 
 | # | GPU 原始代码 | NPU 适配 | 位置 | 说明 |
 |---|---|---|---|---|
-| O1 | `_logsumexp_kernel_single(M, N, dtype)` — `@tilelang.jit` + `@T.prim_func` 构建 CUDA 内核；返回的 callable 接受 `(block_m, threads)` | NPU 实现：`@tilelang.jit(target="npuir")` + `@T.prim_func` 构建 NPUIR 内核；callable 只接受 `block_m`（无 `threads`）；不做 alignment padding，直接用原始 N | `kernels/reduction/logsumexp/logsumexp.py` | NPU 无 `threads` 概念；NPUIR `vsel` 在 mask 与 tensor 形状不一致时报错，故不做 padding |
-| O2 | `_logsumexp_kernel_tiled(M, N, dtype, tile_n)` — 多 tile 路径；返回的 callable 接受 `(block_m, threads)` | NPU 实现：`@tilelang.jit(target="npuir")`；callable 只接受 `block_m`（`tile_n` 已在闭包固化）；不做 alignment padding | 同上 | 同上 |
+| O1 | GPU 单 tile kernel 工厂 | 按任务平台 kernel 模板构建目标 kernel，保留公开函数及 I/O 契约 | 所选平台的构建入口与线程域 | NPUIR 原写法见其专用适配说明 |
+| O2 | GPU 多 tile kernel 工厂 | 按任务平台核验循环、布局、同步和 padding，保留源语义 | 所选平台的编译与资源约束 | NPUIR 原写法见其专用适配说明 |
 | O3 | `_logsumexp_kernel(M, N, dtype, tile_n=0)` — 分发函数 | NPU 实现：分发到 single 或 tiled | 同上 | 同上 |
 
 ### 2.2 LogSumExpKernel 类 — GPU 特定部分适配
@@ -285,3 +285,5 @@ GPU 版本的 autotune 机制通过 TileLang autotuner（`from tilelang.autotune
 | 文件 | 用途 |
 |---|---|
 | `tileops/device.py` | **新增模块**：设备后端抽象（NPU/CUDA/CPU 三后端），所有设备相关代码的单一入口 |
+
+NPUIR 专用适配记录完整保留在 `.agents/platforms/toolchains/npuir/references/tileops-adaptation.md`（Agent 仓根相对路径）。

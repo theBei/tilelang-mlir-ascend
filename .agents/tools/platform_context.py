@@ -9,12 +9,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from toolchains import TOOLCHAINS
+from toolchains import TOOLCHAINS, compatibility_profile
 from toolchains.adapter import ToolchainAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
 PLATFORMS = ROOT / ".agents/platforms"
-DEFAULT_TOOLCHAIN = "npuir"
 STATE_FILES = (".migration_state.json", ".stage_state.json")
 ACTIVE = ContextVar("task_platform", default=None)
 
@@ -121,7 +120,11 @@ class PlatformContext:
 
     def prompt(self):
         if self.compatibility is not None:
-            return {**self.compatibility, "compatibility_mode": True}
+            return {
+                **self.compatibility,
+                "compatibility_mode": True,
+                "execution": self.adapter.execution_context(),
+            }
         return {
             **self.toolchain,
             **self.selection,
@@ -129,6 +132,7 @@ class PlatformContext:
             "design_budget": self.design_budget(),
             "cost_measurements": self.measurements(),
             "runtime": self.runtime,
+            "execution": self.adapter.execution_context(),
         }
 
     def verified(self):
@@ -165,12 +169,13 @@ class PlatformContext:
 
 
 def legacy_context():
-    adapter = TOOLCHAINS[DEFAULT_TOOLCHAIN]()
+    compatibility = compatibility_profile()
+    adapter = TOOLCHAINS[compatibility["backend"]]()
     return PlatformContext(
         adapter,
         adapter.workflow_context(),
         None,
-        read_json(PLATFORMS / "compatibility/legacy-npuir.json"),
+        compatibility,
     )
 
 
@@ -214,9 +219,10 @@ def resolve_platform(hardware=None, toolchain=None, *, detect=False, state=None)
             raise PlatformError(
                 "task state must contain both hardware_id and toolchain_id"
             )
-    elif not (hardware or toolchain or detect):
-        return legacy_context()
-    toolchain = toolchain or DEFAULT_TOOLCHAIN
+    if not toolchain:
+        raise PlatformError("select a toolchain explicitly or supply an existing task directory")
+    if not hardware and not detect:
+        raise PlatformError("select a hardware model explicitly or supply an existing task directory")
     if toolchain not in TOOLCHAINS:
         raise PlatformError(f"unknown toolchain: {toolchain}")
     adapter = TOOLCHAINS[toolchain]()
@@ -259,7 +265,7 @@ def task_state_path(directory, *, exact=False, state_files=STATE_FILES):
 
 def add_platform_args(parser, *, task_dir=True):
     parser.add_argument("--hardware", help="hardware model ID")
-    parser.add_argument("--toolchain", help="toolchain ID (default: npuir)")
+    parser.add_argument("--toolchain", help="toolchain ID")
     if task_dir:
         parser.add_argument("--task-dir", help="directory containing the task state")
 
@@ -283,7 +289,10 @@ def command_platform(args, directory=None):
 
 
 def get_platform():
-    return ACTIVE.get() or legacy_context()
+    context = ACTIVE.get()
+    if context is None:
+        raise PlatformError("no active task platform; select hardware and toolchain or supply a task directory")
+    return context
 
 
 def run_with_platform(parser, args, run, directory=None, *, verify=False):
@@ -308,3 +317,28 @@ def using_platform(context):
         yield
     finally:
         ACTIVE.reset(token)
+
+def knowledge_entry_applies(entry: dict) -> bool:
+    """Apply explicit scope; unscoped historical entries retain their original domain."""
+    platform = get_platform()
+    if platform.hardware is None:
+        return True
+    hardware = entry.get("hardware_id") or entry.get("device")
+    toolchain = entry.get("toolchain_id")
+    if hardware and hardware != platform.hardware["hardware_id"] and not any(
+        name.lower().endswith(hardware.lower())
+        for name in platform.hardware["device_names"]
+    ):
+        return False
+    if toolchain and toolchain not in {platform.toolchain["toolchain_id"], "*"}:
+        return False
+    if entry.get("source") != "queue" or toolchain:
+        return True
+    # Entries predating explicit scope belong to the original compatibility domain.
+    if platform.toolchain["toolchain_id"] != legacy_context().toolchain["toolchain_id"]:
+        return False
+    stamp = entry.get("toolchain_stamp", "")
+    for model in hardware_profiles().values():
+        if any(name.lower() in stamp.lower() for name in model["device_names"]):
+            return model["hardware_id"] == platform.hardware["hardware_id"]
+    return True

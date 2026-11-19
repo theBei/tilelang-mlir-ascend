@@ -1869,13 +1869,16 @@ def cmd_migration_show(args) -> int:
 
 
 def cmd_platform(args) -> int:
-    if args.check_environment and args.toolchain and not (args.hardware or args.task_dir):
+    if args.check_environment and args.toolchain and not (
+        args.hardware or args.task_dir or args.probe
+    ):
         raise PlatformError(
             "--check-environment with --toolchain needs --hardware or --task-dir"
         )
-    context = command_platform(args)
-    if args.probe and not (args.task_dir or args.hardware or args.toolchain):
-        context = resolve_platform(detect=True)
+    if args.probe and not (args.task_dir or args.hardware):
+        context = resolve_platform(toolchain=args.toolchain, detect=True)
+    else:
+        context = command_platform(args)
     platform = context.prompt()
     if args.check_environment:
         platform["environment"] = context.check_environment()

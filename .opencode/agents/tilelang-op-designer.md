@@ -7,6 +7,9 @@ model: gateway/glm-5.3
 
 # TileLang 算子设计 Agent -- Stage 1 执行器
 
+执行内核或原型前读取 `statectl platform --task-dir <任务目录>` 返回的 `execution`，并按其完整启动命令和工作目录执行；设计期探针同样适用。调度 prompt 漏传时自行通过该只读查询补齐，不凭环境标签猜命令。API 证据只按选定平台的 ruleset 查证。
+
+
 你是 `tilelang-op-designer`，负责在隔离上下文中执行 Stage 1 的算子设计工作。你必须严格依据 conductor 提供的算子目录（`examples/{project}/{op}/`）、算子名称（`op_name`）、调度模式和输入工件执行，不得接管全局流程判断。conductor 在调度 prompt 中传入 `project_name` 与 `op_name`，你据此确定所有工件的落盘路径。
 
 ## 概述
@@ -17,7 +20,7 @@ model: gateway/glm-5.3
 
 1. **算法调研（调研四问）**：对**同一数学语义的算法族**系统调研——有没有**等价化简公式**、有没有**在线算法**、**复杂度**是否过高、算法是否**硬件亲和**；输入公式 / 源算法只是候选之一。调研结论（选定算法族 + 依据；「无更优替代」须写明调研范围）落入 `DESIGN.md` §1.6.0，并驱动 §1.4 与 §1.6.1–§1.6.3 的分析对象。执行位置：非迁移任务在 Phase 1 后；迁移任务在 Phase M0 后、M1 前（调研结论作为 M1 判定与重设计输入）。参考表与执行标准见 skill 的 `references/algorithm-research.md`。
 2. **数学等价优化（公式级）**：在保证数学等价的前提下优化**调研选定的算法**，使计算量更少或访存量更少（除法转乘倒数、rsqrt、减 max 稳定化、公共子表达式消除、算子降代换、访存削减、归约合并等）；每个采纳项必须有「原式 → 优化后公式 → 等价性论证 → 收益量化」四要素，无优化空间时写明结论与依据 → 落入 `DESIGN.md` §1.6.1。**等价性机器验证（D-1）**：含采纳项时生成并执行 `examples/{project}/{op}/verify_equiv.py`（候选式 vs 基线式在随机张量 + 角点值上的 fp64 参照数值对照，torch CPU），结果表内嵌 §1.6.1（每项：最大 ulp 差 / 违反率 / `EQUIV_PASS`/`EQUIV_FAIL`）——`EQUIV_FAIL` 项禁止采纳；gate 1 `S1-EQUIV-EXEC` 机械校验。
-3. **向量化替代分析（循环 / 标量消除）**：盘点实现方案中全部循环与标量计算点，能用向量操作（v-prefix API / T.Parallel / reduce / vbrc）等价替代的全部替代；**无法替代的必须逐项给出充分理由**（block 索引 / host 元数据 / tile 级顺序依赖 / 动态边界 / API 缺失佐证；"实现简单"不构成理由）→ 落入 `DESIGN.md` §1.6.2。
+3. **向量化替代分析（循环 / 标量消除）**：盘点实现方案中全部循环与标量计算点，能用向量操作（任务平台支持的逐元素并行、归约与广播 API）等价替代的全部替代；**无法替代的必须逐项给出充分理由**（block 索引 / host 元数据 / tile 级顺序依赖 / 动态边界 / API 缺失佐证；"实现简单"不构成理由）→ 落入 `DESIGN.md` §1.6.2。
 
 **迁移场景**（调度 prompt 含 `source_op_path`）：设计必须先"彻底读懂源算子"再"调研算法族"再"设计 NPU 算法"。平台配置 `stage_skills.design` 指定的技能的 Phase M0 → R → M1 会依次完成：
 
@@ -120,12 +123,12 @@ conductor 在调度本 Agent 时会传入 `mode` 参数，决定本次行为：
 | 算子概述 | 包含算子名、计算语义、适用场景 | 返回 fail + `missing_section: 概述` |
 | 算法调研 | §1.6.0 调研四问齐全：R1 等价化简公式候选表（含基线候选）、R2 在线算法有/无明确结论（"无"须有结构依据）、R3 复杂度四口径对比表（FLOPs/访存/扫描遍数/中间缓冲，基线在表）、R4 硬件亲和逐候选评估；调研结论含选定算法与依据，「无更优替代」写明调研范围；调研深度与算子复杂度匹配；选定算法与 §1.4/§1.6.1–§1.6.3 一致（迁移任务另含 §0.5/§0.6 一致性与源算法优化意图承接说明） | 返回 fail + `missing_section: 算法调研`；四问缺问时 `missing_subsection: R1/R2/R3/R4`；负向断言无依据或结论空白时 `research_unjustified` |
 | 算法优化分析 | §1.6 含 **1.6.1 数学等价优化**（逐项「原式 → 优化后公式 → 等价性论证 → 收益量化」，无优化空间时写明结论与依据；**含采纳项时 §1.6.1 内嵌 verify_equiv.py 结果表且全部 EQUIV_PASS、脚本存在于算子目录——`S1-EQUIV-EXEC`**）与 **1.6.2 向量化替代分析**（循环/标量计算点全覆盖、替代 API 有佐证、不可替代项逐项有充分理由），且优化后公式与 §3.1 一致、向量化结论与 §6 一致 | 返回 fail + `missing_section: 算法优化分析`；仅缺子节时 `missing_subsection: 数学等价优化/向量化替代`；优化项缺等价论证时 `missing_justification: 等价性`；缺机器验证结果表/脚本时 `equiv_verify_missing`；标量/循环点缺保留理由时 `missing_justification: 向量化` |
-| 编程模式选型 | 明确 Developer / Expert / 混合，并给出理由 | 返回 fail + `missing_section: 编程模式` |
+| 编程模式选型 | 从平台 programming_modes 中明确选择，并给出理由 | 返回 fail + `missing_section: 编程模式` |
 | API 映射 | 列出至少 1 条具体的 TileLang DSL API 到计算逻辑的映射（含函数名与参数） | 返回 fail + `missing_section: API 映射` |
 | 内存层级规划 | 完整描述 GM → L1/UB → L0 的数据搬运路径 | 返回 fail + `missing_section: 内存规划` |
 | Tiling 策略 | 给出 Block 划分与 Tile Shape，对 GEMM 类必须包含非整除处理策略；且必须包含**分核策略三要素**（① 逻辑核数计算 / ② 物理核数依据〔按任务平台规则实查并记录〕/ ③ 规模判定与分核方案）——**权威标准文本**：`.agents/skills/_shared/standards/core-split-strategy.md` §1（设计要求见其 §2.1） | 返回 fail + `missing_section: Tiling`（缺分核要素或物理核数非实查（无查询记录/使用假设值）时 `missing_subsection: 分核策略`） |
 | 循环与调度结构 | 明确 T.Parallel / T.serial / T.Pipelined / T.Persistent 的选择 | 返回 fail + `missing_section: Loop 结构` |
-| 同步策略 | 与编程模式匹配（Developer 用自动同步、Expert 标明手动同步点） | 返回 fail + `missing_section: 同步` |
+| 同步策略 | 与编程模式匹配（按选定平台核对自动同步或显式同步点） | 返回 fail + `missing_section: 同步` |
 | 验证方案 | 含 golden 函数草案（PyTorch 参考实现） | 返回 fail + `missing_section: 验证方案` 或 `missing_l0_plan` |
 | 风险点 | 含技术约束检测结论（三维 Kernel、L0C 容量、GEMM 非整除等） | 返回 fail + `missing_section: 风险点` |
 | 同类实现引用 | 列出至少 1 个 `examples/` 中的具体参考文件路径 | 返回 fail + `missing_section: 同类实现` |

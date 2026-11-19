@@ -7,9 +7,8 @@ modifies library files -- it only reports.
 Current stamp detection is delegated to the platform adapter. Override it
 with --stamp when checking a recorded toolchain.
 
-An entry is stale when its TileLang commit and the current commit are known
-and differ. If either commit is unavailable, the entry is unknown and needs
-manual review. Use --include-unknown to list those entries.
+Explicit fingerprints are compared directly. Historical version formats are
+interpreted by the selected toolchain; unavailable evidence remains unknown. Use --include-unknown to list those entries.
 
 Usage:
   python3 .agents/tools/kb_stale_check.py [--stamp "tilelang X + toolchain Y"]
@@ -32,6 +31,8 @@ from pathlib import Path
 from platform_context import (
     add_platform_args,
     get_platform,
+    get_adapter,
+    knowledge_entry_applies,
     run_with_platform,
 )
 
@@ -44,9 +45,6 @@ def knowledge_globs():
         os.path.join(REPO_ROOT, pattern_dir, "*.md"),
         os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md"),
     ]
-
-
-COMMIT_RE = re.compile(r"\b([0-9a-f]{7,40})\b")
 
 
 def current_stamp() -> dict:
@@ -62,30 +60,23 @@ def parse_entries(path: str) -> list:
         text = f.read()
     rel = os.path.relpath(path, REPO_ROOT)
     entries = []
-    hardware = get_platform().hardware
-    device_names = (
-        {name.lower().removeprefix("ascend") for name in hardware["device_names"]}
-        if hardware
-        else set()
-    )
     parts = re.split(r"(?m)^---\s*$", text)
     for i in range(1, len(parts) - 1, 2):
         fm_raw = parts[i]
-        m = re.search(r"^toolchain:\s*(.+)$", fm_raw, re.M)
-        mid = re.search(r"^id:\s*(\S+)", fm_raw, re.M)
-        device = re.search(r"^device:[ \t]*(\S+)", fm_raw, re.M)
-        if (
-            device
-            and device_names
-            and device.group(1).lower().removeprefix("ascend") not in device_names
-        ):
+        m = re.search(r"^toolchain_stamp:[ \t]*(.+)$", fm_raw, re.M) or re.search(r"^toolchain:[ \t]*(.+)$", fm_raw, re.M)
+        scope = dict(re.findall(r"(?m)^([a-z_]+):[ \t]*(.*)$", fm_raw))
+        if not knowledge_entry_applies(scope):
             continue
+        mid = re.search(r"^id:\s*(\S+)", fm_raw, re.M)
         if m and mid:
             entries.append(
                 {"id": mid.group(1), "toolchain": m.group(1).strip(), "path": rel}
             )
     # queue.md VP entries carry '- toolchain_stamp:'
     for m in re.finditer(r"(?m)^## (VP-\d{4}-\d{4})\s*$([\s\S]*?)(?=^## |\Z)", text):
+        fields = dict(re.findall(r"(?m)^- ([a-z_]+):[ \t]*(.*)$", m.group(2)))
+        if not knowledge_entry_applies({**fields, "source": "queue"}):
+            continue
         mm = re.search(r"^- toolchain_stamp:\s*(.+)$", m.group(2), re.M)
         if mm:
             entries.append(
@@ -95,16 +86,7 @@ def parse_entries(path: str) -> list:
 
 
 def classify(entry_stamp: str, current: dict) -> str:
-    entry_commits = COMMIT_RE.findall(entry_stamp or "")
-    current_commit = current.get("tilelang_commit")
-    if not entry_commits or not current_commit:
-        return "unknown"
-    if any(
-        commit.startswith(current_commit) or current_commit.startswith(commit)
-        for commit in entry_commits
-    ):
-        return "fresh"
-    return "stale"
+    return get_adapter().classify_stamp(entry_stamp, current)
 
 
 def check_entries(current: dict, *, include_unknown: bool = False) -> dict:
@@ -126,7 +108,7 @@ def check_entries(current: dict, *, include_unknown: bool = False) -> dict:
         "stale_count": len(stale),
         "stale": stale,
         "unknown_count": len(unknown),
-        "note": "stale = entry toolchain commit differs from current; "
+        "note": "stale = recorded toolchain version differs from current; "
         "re-verify repro-backed entries via: "
         "repro_runner.py --filter stale",
     }
@@ -150,15 +132,7 @@ def main() -> int:
 
 
 def run(args) -> int:
-    if args.stamp:
-        current = {
-            "raw": args.stamp,
-            "tilelang_commit": (COMMIT_RE.findall(args.stamp) or [None])[0],
-            "cann": None,
-            "tilelang": None,
-        }
-    else:
-        current = current_stamp()
+    current = {"raw": args.stamp} if args.stamp else current_stamp()
 
     report = check_entries(current, include_unknown=args.include_unknown)
     if args.json:
@@ -169,7 +143,7 @@ def run(args) -> int:
         for e in report["stale"]:
             print(f"  [stale] {e['id']}  ({e['path']})  stamp: {e['toolchain'][:80]}")
         print(
-            f"unknown (missing or unparsable commit): {report['unknown_count']} "
+            f"unknown (missing or unrecognized version stamp): {report['unknown_count']} "
             f"(--include-unknown to list)"
         )
     return 0

@@ -63,8 +63,8 @@ from pathlib import Path
 from platform_context import add_platform_args, get_platform, run_with_platform
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), *([".."] * 2)))
-PL_DIR = os.path.join(REPO_ROOT, get_platform().prompt()["knowledge"]["patterns"])
-INDEX_PATH = os.path.join(PL_DIR, "INDEX.md")
+PL_DIR = None
+INDEX_PATH = None
 QUEUE_PATH = os.path.join(REPO_ROOT, ".agents", "evolution", "queue.md")
 
 BUDGETS = {"INDEX.md": 12 * 1024}
@@ -374,17 +374,9 @@ def lint_index(all_ids: list, failures: list, warnings: list) -> None:
 def lint_extra_kb_files(tracked: set | None, failures: list, warnings: list) -> None:
     """Line-level KB-PROC-REF scan for the other KB prose files whose entries
     are heading-based rather than front-matter based."""
-    files = [
-        os.path.join(
-            REPO_ROOT,
-            ".agents",
-            "skills",
-            "tilelang-op-optimize",
-            "references",
-            "bottleneck-patterns.md",
-        ),
-        os.path.join(REPO_ROOT, ".agents", "evolution", "capability-gaps.md"),
-    ]
+    knowledge = get_platform().toolchain["knowledge"]
+    files = [os.path.join(REPO_ROOT, knowledge[key])
+             for key in ("bottlenecks", "capability_gaps")]
     for path in files:
         if not os.path.isfile(path) or tracked is None:
             continue

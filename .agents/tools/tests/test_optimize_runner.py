@@ -96,6 +96,8 @@ def test_runner_records_are_accepted_by_platform_gate(tmp_path, monkeypatch):
             "optimize",
             "--hardware",
             "ascend-910b3",
+            "--toolchain",
+            "npuir",
         )[0]
         == 0
     )

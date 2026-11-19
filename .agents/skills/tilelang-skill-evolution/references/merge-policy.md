@@ -2,7 +2,7 @@
 
 > 本文件是 evolver Phase 3/4 的执行标准。核心思想（源自业界 ACE / Voyager / Mem0 实践，见 docs/developer/conductor-self-evolution-design.md §1）：**增量 delta 而非重写、写入须验证门、冲突须消解、文件须有预算、进化须可回滚**。
 >
-> 2026-09-10 修订（conductor 改进报告 ED-A/C、E-3/E-4、K-2 落地）：证据三件套语义按 ED-A 重定义（provenance / 版本戳 / repro 分离，见 distillation-rules.md §5）；D 类合入门槛与 repro 责任前移见 §1/§2；预算从行数改为**字节预算**；apply 预验证见 §8。
+> 2026-09-10 修订（conductor 改进报告 ED-A/C、E-3/E-4、K-2 落地）：证据三件套语义按 ED-A 重定义（provenance / 版本戳 / repro 分离，见 distillation-rules.md §5）；D 类合入门槛与 repro 责任前移见 `1/`2；预算从行数改为**字节预算**；apply 预验证见 §8。
 
 ## 目录
 
@@ -31,14 +31,16 @@
 
 ## 2. evolver 的写范围
 
+以下 knowledge.* 路径逐项从本任务平台查询结果解析为仓库相对路径。共用 Tier 治理与 queue/stats 保持不变；不得把其他工具链的知识目录当作当前写入目标。硬件或工具链相关提案记录其 hardware_id/toolchain_id；跨平台纯流程提案显式填写 toolchain_id: *；未标范围的历史条目沿用原兼容域。
+
 **允许写**（distill 模式）：
 
 | 文件 | 允许动作 |
 |------|---------|
-| `.agents/skills/tilelang-op-optimize/references/pattern-library/` 主题文件（layout/elementwise/attention/traps-compiler/traps-runtime/constants/cases.md） | Tier 0：add/update/negate/deprecate + 预算触发的 consolidate（条目 front-matter 按 INDEX.md §5 schema） |
-| `.agents/skills/tilelang-op-optimize/references/pattern-library/repro/` | **repro 的转正与校验（ED-C，机械动作）**：把 Stage 3 任务内产出的 `examples/{op}/repro/*.py` 机械拷入、核验头部规范（条目 ID + 版本戳 + 断言说明）与 `py_compile`、在条目 front-matter 登记 `repro:` 路径——**不编写、不裁剪代码**（编写与首次运行发生在有环境的任务内 Subagent） |
-| `.agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md` | Tier 1：P 类合入（计数达 2/2） + consolidate |
-| `.agents/skills/tilelang-op-design/references/algorithm-candidates.md` | Tier 1：P 类合入（算法候选库——"算法族 X 的候选 Y 实测收益 Z"类发现，条目含 `known_impl`/`kb_links` 指针） |
+| `{knowledge.patterns}/` 主题文件（layout/elementwise/attention/traps-compiler/traps-runtime/constants/cases.md） | Tier 0：add/update/negate/deprecate + 预算触发的 consolidate（条目 front-matter 按 共享 knowledge-entry-schema.md） |
+| `{knowledge.patterns}/repro/` | **repro 的转正与校验（ED-C，机械动作）**：把 Stage 3 任务内产出的 `examples/{op}/repro/*.py` 机械拷入、核验头部规范（条目 ID + 版本戳 + 断言说明）与 `py_compile`、在条目 front-matter 登记 `repro:` 路径——**不编写、不裁剪代码**（编写与首次运行发生在有环境的任务内 Subagent） |
+| `{knowledge.bottlenecks}` | Tier 1：P 类合入（计数达 2/2） + consolidate |
+| `{knowledge.algorithm_candidates}` | Tier 1：P 类合入（算法候选库——"算法族 X 的候选 Y 实测收益 Z"类发现，条目含 `known_impl`/`kb_links` 指针） |
 | 其他 skill 的 `references/` 下**数据/模式类**文件（P 类 target_doc） | Tier 1：合入（计数达 2/2） |
 | `.agents/evolution/queue.md`、`.agents/evolution/stats.md` | 全权维护 |
 

@@ -1,6 +1,6 @@
 # 性能采集流程
 
-本文档服务 `tilelang-op-optimize` 的 Stage 4。性能调优对象是迁移后 benchmark 实际参数化的、可运行且非 smoke 的 workload；合并对象是它们实际调用的 Stage 3 kernel。`msprof op Task Duration(us)` 是唯一 kernel 时延口径，不使用 NPU event 或端到端耗时。
+本文档服务 `tilelang-op-optimize` 的 Stage 4。性能调优对象是迁移后 benchmark 实际参数化的、可运行且非 smoke 的 workload；合并对象是它们实际调用的 Stage 3 kernel。`任务平台定义的 kernel Task Duration(us)` 是唯一 kernel 时延口径，不使用 NPU event 或端到端耗时。
 
 ---
 
@@ -8,7 +8,7 @@
 
 TileOPs 迁移/集成场景读取迁移后的 benchmark 参数化入口，展开每个案例的 `workload_id`、shape、dtype、影响 kernel 的参数和 benchmark 来源。benchmark 可以通过 helper 从 manifest 生成参数，但**只取 benchmark 实际展开的案例**；不得额外枚举 manifest、L0/L1/L2/Boundary 测试或补造 benchmark 中不存在的 case。只提取 workload 参数，不要求先运行正式 benchmark、接入 wrapper 或注入候选实现。非 TileOPs、确无迁移 benchmark 的独立算子使用用户明确指定的性能 workload，逐 kernel/逐 workload 建立 inventory；`benchmark_source` 记为 `explicit_target`。
 
-逐案例确认它实际调用的 Stage 3 kernel，记录可唯一定位实现文件及函数的 `kernel_id` 和用于 `msprof op --kernel-name` 的 `target_kernel_name`。一个案例若调用多个目标 kernel，分别登记 workload–kernel 对；无法确认映射时记录原因并停止该案例的性能采集。TileOPs 原有 op 层路由只用于查明映射，不是 Stage 4 调优单位，也不应修改。
+逐案例确认它实际调用的 Stage 3 kernel，记录可唯一定位实现文件及函数的 `kernel_id` 和用于 所选 profiler 目标匹配参数 的 `target_kernel_name`。一个案例若调用多个目标 kernel，分别登记 workload–kernel 对；无法确认映射时记录原因并停止该案例的性能采集。TileOPs 原有 op 层路由只用于查明映射，不是 Stage 4 调优单位，也不应修改。
 
 分类顺序：benchmark 显式 skip → `skipped`（保留 reason）；`pytest.mark.smoke` 或案例 ID / 明确 workload label 中独立的 `smoke` 词（大小写不敏感，以 `-`、`_` 等分隔，如 `smoke-1m`）→ `smoke`；其余 → `tune`。若 `full` 标记与 `smoke` ID/label 冲突，记录冲突，仍归为 `smoke`。不得凭 shape 小、参数化顺序或 manifest 注释推断 smoke。
 
@@ -22,32 +22,17 @@ TileOPs 迁移/集成场景读取迁移后的 benchmark 参数化入口，展开
 
 ---
 
-## 3. 串行运行 msprof op
+## 3. 串行运行平台采集工具
 
-对每个 `kernel_id + workload_id` 逐个运行 `msprof op`，禁止并发 profiling。使用 benchmark workload 参数直接运行 Stage 3 kernel 或 `perf_opt/` 下实际候选文件，**不运行需要 Stage 5 wrapper 的正式 benchmark**。
+对每个 `kernel_id + workload_id` 逐个运行 平台采集工具，禁止并发 profiling。使用 benchmark workload 参数直接运行 Stage 3 kernel 或 `perf_opt/` 下实际候选文件，**不运行需要 Stage 5 wrapper 的正式 benchmark**。
 
-命令模板：
-
-```bash
-msprof op \
-  --kernel-name={target_kernel_name} \
-  --output={output_dir} \
-  --launch-count=20 \
-  --warm-up=5 \
-  --dump=off \
-  --aic-metrics=BasicInfo,PipeUtilization,ArithmeticUtilization,Memory,MemoryUB,MemoryL0,L2Cache,ResourceConflictRatio \
-  python {actual_kernel_file}.py {workload_args}
-```
+命令模板由任务 ruleset 的性能采集说明提供。通过所选适配器生成 profiler 命令，传入同一目标 kernel、workload、launch-count、warm-up 和独立输出目录。
 
 `{workload_args}` 按现有 kernel 入口适配，可使用已支持的 `--case`，但不新增候选实现注入接口。日志中的 `command` 必须包含实际候选文件与 workload，避免误测原始 Stage 3 文件。
 
 实验迭代可用较小 `launch-count` 快速判断方向，但必须在日志中记录 launch 数；baseline、候选 winner 和 final 推荐使用更稳定的 launch 数复测。
 
-如果当前 CANN 版本不兼容逗号形式的 `--aic-metrics`，退回：
-
-```bash
-msprof op --kernel-name={target_kernel_name} --output={output_dir} --launch-count=10 --warm-up=5 --aic-metrics=Default python {actual_kernel_file}.py {workload_args}
-```
+工具参数兼容处理按任务工具链规则执行；NPUIR 的原参数与回退命令完整保留在其 profile-collection 参考。
 
 输出目录只需保证唯一，推荐：
 
@@ -55,11 +40,11 @@ msprof op --kernel-name={target_kernel_name} --output={output_dir} --launch-coun
 perf_opt/profiles/{profile_stage}/{kernel_id}/{workload_id}_{candidate_id}/
 ```
 
-新建 `msprof op` 输出目录后，先确保 group/other 不可写，例如 `chmod 700 {output_dir}`；否则某些环境会拒绝采集或写入失败。
+新建 平台采集工具 输出目录后，先确保 group/other 不可写，例如 `chmod 700 {output_dir}`；否则某些环境会拒绝采集或写入失败。
 
-如果 `msprof op` 在输出目录下生成 `OPPROF_xxx` 子目录，记录实际 `raw_profile_dir`。
+如果 平台采集工具 在输出目录下生成 `OPPROF_xxx` 子目录，记录实际 `raw_profile_dir`。
 
-注意：`msprof op` 多 launch 稳定性需要靠多次独立运行，不要用 CSV 记录条数推断实际 launch 次数。
+注意：平台采集工具 多 launch 稳定性需要靠多次独立运行，不要用 CSV 记录条数推断实际 launch 次数。
 
 实验 stdout/stderr 不写到 `perf_opt/` 顶层，统一写入：
 

@@ -102,8 +102,11 @@ def safe_component(value: str) -> str:
 
 
 def run_l0(branch_file: str) -> bool:
+    adapter = get_adapter()
+    branch_path = Path(branch_file).resolve()
     proc = subprocess.run(
-        get_adapter().precision_command(branch_file, "L0"),
+        adapter.execution_command(adapter.precision_command(str(branch_path), "L0")),
+        cwd=branch_path.parent,
         capture_output=True,
         text=True,
         timeout=TIMEOUT_S,

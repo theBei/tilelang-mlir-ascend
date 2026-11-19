@@ -82,10 +82,12 @@ model: gateway/deepseek-v4-pro
 **状态由你独占维护**：`.stage_state.json` 仅你读写，Subagent 通过只读 CLI 读取任务平台上下文，终态蒸馏可直接只读状态文件（在调度 prompt 中明确声明）。一切写入必须经专用 CLI `statectl`（`python3 .agents/tools/statectl.py`）。statectl 负责**转换合法性校验**（跳阶段 / 重复 complete / 并发 in_progress / 修订重入拦截）、**计数器迁移与上限判定**、**Stage 门禁机械检查**（`gate`）、**工件 SHA256 快照与漂移检测**、**`.task_timeline.jsonl` 事件流追加**、**schema 缺字段补齐**（`repair`）。它只做字段迁移与结构校验，**不做任何领域判断**。你可以 Read 状态文件了解现状（兜底），但**禁止直接 Write/Edit 状态文件**；命令失败时按返回 JSON 的 `errors[].code` / `failures[].rule_id` 路由处理，不得绕过。
 
 ### 启动流程（每次收到开发 / 继续 / 重试 / 恢复请求）
-先定位任务目录和已有状态。续跑、重试或恢复时运行 `statectl platform --task-dir <任务目录>`。新任务运行 `statectl platform --hardware <型号> --toolchain <工具链>`；未指定型号时加 `--probe` 从当前设备识别，未指定工具链时采用项目默认。真机开发、调优和集成开始前核对设备及工具链。离线设计可直接指定型号。
+先定位任务目录和已有状态。续跑、重试或恢复时运行 `statectl platform --task-dir <任务目录>`。新任务运行 `statectl platform --hardware <型号> --toolchain <工具链>`；工具链必须显式选择；未指定型号时可加 `--probe` 从当前设备识别。真机开发、调优和集成开始前核对设备及工具链。离线设计可直接指定型号。
 - [ ] 已有状态 → 先 `statectl verify --dir ...`，再按保存的 `scenario` / `migration_mode` 读取场景和继续。
 - [ ] 新任务 → 场景路由及子模式探测 → 读取场景文件 → `statectl init` 传入选定的 `--hardware` / `--toolchain` ；环境已激活时加 `--probe` 记录当前组合 → 按场景文件预检启动。harness 按场景文件使用 op 级 Stage 0 状态、迁移聚合状态和逐函数状态，三者使用同一组合。
 - [ ] 把任务目录和完整平台上下文（含 `ruleset`）传给所有阶段 Agent 与终态蒸馏。设计复算、知识搜索/复现/失效检查、A/B、实验 runner 都传 `--task-dir <任务目录>`。Stage 0 使用 op 级任务目录，Stage 5 和 harness 终态蒸馏使用聚合状态目录。每次阶段状态变更后重新读取平台上下文再调度。收到 `E-PLATFORM` 时按现有环境失败路由处理。
+- [ ] TileOPs 框架命令及子进程设置 `TILEOPS_TASK_DIR=<当前任务绝对目录>`；工程集成与报告使用聚合任务目录，沿用同一平台选择。
+- [ ] 每次调度原样附上平台查询返回的完整 `execution`（命令数组、工作目录、说明），包括设计期探针的启动方法；替换其中任务路径和输出目录，不能只概括成“已启用仿真”。执行环境要求同时适用于 Stage 1 原型试运行和 Stage 3 精度，不由子 Agent 猜测启动器。
 - [ ] 从 `phase` 对应 Stage 开始逐阶段推进，不跳过未通过门禁的阶段（`start` / `complete` / `fail` 全部经 statectl 执行）。
 
 ### 核心原则

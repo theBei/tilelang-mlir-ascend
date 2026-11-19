@@ -2,9 +2,9 @@
 disable: true
 ---
 
-# TileLang-NPUIR 算子自动生成系统
+# TileLang 算子自动生成系统
 
-基于 OpenCode Agent 编排的 TileLang-NPUIR 算子端到端自动开发系统。启动时先做**场景路由**（新算子生成 `new_op` / GPU TileLang 算子迁移 `migration`（harness / plain）/ 已有算子定制优化 `optimize`），再通过 **Stage-Gate（阶段门禁）** 模式调度六个专职子 Agent，把算子从一句自然语言需求自动推进到经精度与性能验证的可交付 kernel。
+基于 OpenCode Agent 编排的 TileLang 算子端到端自动开发系统。启动时先做**场景路由**（新算子生成 `new_op` / GPU TileLang 算子迁移 `migration`（harness / plain）/ 已有算子定制优化 `optimize`），再通过 **Stage-Gate（阶段门禁）** 模式调度六个专职子 Agent，把算子从一句自然语言需求自动推进到经精度与性能验证的可交付 kernel。
 
 本目录（`.opencode/agents/``）存放编排 Agent 与各阶段子 Agent 定义；领域能力沉淀在`.agents/skills/`；conductor 场景专属规则在`conductor-scenarios/`。**本 README 是架构导览 + 指针，不是规则副本**——各知识块的唯一权威出处见下表，规则细节一律以权威文件为准。
 
@@ -86,22 +86,22 @@ conductor 在场景路由（含 migration 子模式探测）完成后、预检�
 | ---- | ---- | ---- |
 | 流程类 | `tilelang-op-design` / `tilelang-design-review` / `tilelang-op-develop` / `tilelang-op-optimize` | Stage 1/2/3/4 执行依据（设计 skill 的 references 按任务类型分层加载） |
 | 自进化类 | `tilelang-skill-evolution` | 蒸馏（distill）/ 合入已批准提案（apply） |
-| 领域知识类 | `tilelang-npuir-overview` / `tilelang-vector-skill` / `tilelang-cube-skill` / `tilelang-mixcv-skill` | 分支架构 / Vector（v-prefix API）/ Cube（load_nd2nz、NZ）/ 混合 |
-| 辅助类 | `tilelang-mlir-skill` / `tilelang-debug-helper` / `tilelang-error-fixer` / `tilelang-review-skill` / `tilelang-github-operations` | pass 调试 / GDB+IR / 错误修复 / 审查 / GitHub 工作流 |
+| 领域知识类 | 任务平台 ruleset 指定的专用技能 | 对应工具链的架构、API、布局与计算路径 |
+| 辅助类 | 所选平台 `diagnostics` 与 `ruleset` 指定的辅助技能 | 调试 / 错误修复 / 审查 / 工程协作 |
 
 另有 TileOPs 子项目内技能 `examples/TileOPs/.agents/skills/add-npu-op/`（Stage 0/5 执行依据，不在根 `.agents/skills/` 注册）。
 
 ## 使用方式
 
-前置：NPU 设备可用、`source set_env.sh`、OpenCode 会话。向 conductor 发送需求即可（预检、调度、状态维护均自动）：
+前置：按所选平台 ruleset 准备执行环境，并开启 OpenCode 会话。向 conductor 发送需求即可（预检、调度、状态维护均自动）：
 
 ```
-# 新算子（5 必需字段：算子名 / 公式 / 输入规格 / 输出规格 / 编程模式）
-请帮我开发一个 softmax 算子，target=npuir。数学公式：softmax(x_i)=exp(x_i-max)/sum(exp(x_j-max))
-输入：[B, N] float16，B 动态；输出：同输入；编程模式：Developer
+# 新算子（算子名 / 公式 / 输入规格 / 输出规格；编程模式按所选工具链规则确定）
+请帮我开发一个 softmax 算子，hardware=<已注册型号>，toolchain=<已注册工具链>。数学公式：softmax(x_i)=exp(x_i-max)/sum(exp(x_j-max))
+输入：[B, N] float16，B 动态；输出：同输入；编程模式按所选平台 ruleset 确定。
 
 # 迁移（plain：给出 GPU 源文件；harness：给出 TileOPs 同构仓路径）
-请把这个 TileLang GPU 算子迁移到 npuir：文件 examples/gemm/matmul.py，输出 shape (M, N)
+请迁移这个 TileLang GPU 算子，hardware=<已注册型号>，toolchain=<已注册工具链>：文件 examples/gemm/matmul.py，输出 shape (M, N)
 
 # 优化（指向已存在算子产物）
 请优化 examples/norm/layer_norm/layer_norm.py 的性能，目标：latency < 100us
@@ -117,7 +117,5 @@ conductor 在场景路由（含 migration 子模式探测）完成后、预检�
 | 文档 | 路径 |
 | ---- | ---- |
 | 仓库 Agent 指南（API 约定 / Skill 索引 / Docs 路由） | `AGENTS.md` |
-| 快速入门 / 开发指南 / 调试指南 | `docs/快速入门.md` / `docs/开发指南.md` / `docs/Tilelang算子调试指南.md` |
-| 环境变量 / NPU Runtime / 安装 | `docs/developer/EnvironmentVariables.md` / `docs/developer/npu runtime.md` / `docs/安装指南.md` |
-| 模式对比 / 贡献指南 | `docs/Developer_Expert_Mode对比.md` / `docs/Tilelang-Ascend贡献指南.md` |
-| 语言 API 文档 | `docs/Tilelang.language/`（Docs 自动路由规则见 `AGENTS.md`） |
+| 环境 / 安装 / 编程模式 / 开发与调试文档 | 按任务平台 ruleset 路由，使用所选工具链对应版本 |
+| 语言 API 文档 | 按任务平台 ruleset 路由，核对实际模块与版本 |

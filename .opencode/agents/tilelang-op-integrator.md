@@ -19,8 +19,6 @@ Stage 1/3 产出的独立交付件（`examples/{op_slug}/{func}/DESIGN.md` 设�
 4. **调试闭环**：失败时受控修复，上限 5 attempt。
 
 > **环境前提**：按任务平台规则准备设备与工具链，并在规则指定的工作目录运行集成和报告命令。
->
-> 集成目录、wrapper 接线、验收命令、报告结构与完成条件采用任务平台规则。下文 `examples/TileOPs/`、输出路径和 `run.json` 判定属于既有 NPUIR 契约。
 
 ## 核心原则
 
@@ -52,7 +50,7 @@ Stage 1/3 产出的独立交付件（`examples/{op_slug}/{func}/DESIGN.md` 设�
 
 ### 第一步：确定性集成
 
-在平台规则指定的工作目录，用 `integration.script` 执行集成，传入 `--meta <meta_path>`。
+在平台规则指定的工作目录，用 `integration.script` 执行集成，传入 `--meta <meta_path> --task-dir <聚合任务绝对目录>`。
 
 - 脚本幂等；重复运行安全（kernel 与 `{func}_DESIGN.md` 均整文件覆盖）。
 - 每次集成都按任务平台规则核对最终 Stage 3 kernel 的模式声明和 wrapper 同步。
@@ -65,7 +63,7 @@ Stage 1/3 产出的独立交付件（`examples/{op_slug}/{func}/DESIGN.md` 设�
 
 工作目录保持为第一步进入的 `examples/TileOPs/`（从仓库根目录运行时先 `cd examples/TileOPs`）：
 
-按任务平台规则运行单算子报告，算子标识使用 `{op_name}`。
+按任务平台规则运行单算子报告，算子标识使用 `{op_name}`；集成冒烟与报告子进程均设置 `TILEOPS_TASK_DIR=<聚合任务绝对目录>`，让框架读取相同的平台选择。
 
 - 不得从仓库根目录直接运行模块命令。
 - `{op_name}` 使用 `.migration_meta.json` 的 PascalCase manifest 键，不使用 `op_slug`；确认 manifest 的 `source.test/source.bench` 与元数据中的 test/bench 路径一致。只运行该算子，不使用 `--all`。
@@ -89,7 +87,7 @@ Stage 1/3 产出的独立交付件（`examples/{op_slug}/{func}/DESIGN.md` 设�
 
 | 症状 | 修复方向 |
 |------|---------|
-| fp16/bf16 精度超差 | kernel 内加 fp32 中间量（vcast 上抛 → 计算 → vcast 回写） |
+| fp16/bf16 精度超差 | kernel 内通过所选工具链的类型转换 API 上抛 fp32、计算并回写 |
 | wrapper dtype_str 与 torch.dtype 不匹配 | 胶水层转换（仅 wrapper 文件） |
 | config 参数（block/tile）不适配 NPU | wrapper `default_config` 调整（仅 wrapper 文件） |
 | import / 路径错误 | 检查聚合 `__init__.py` 与相对导入 |

@@ -6,6 +6,11 @@ description: Add a new operator to the TileOPs project (NPU backend). Caller pro
 
 Add a new operator to the `TileOPs/` standalone NPU project.
 
+The task's selected platform determines the kernel API, compilation target and
+programming mode. Read the selected platform's rules for the kernel API,
+mode declaration and execution command. The seven-file layout, source
+extraction, integration and reporting flow remain the same.
+
 ## Prerequisites
 
 - **NPU project root** (working directory): the standalone NPU `TileOPs/`
@@ -43,7 +48,7 @@ The caller provides:
 | -- | ---------------------------------------------- | ------------------------------------------------------- |
 | S1 | `tileops/manifest/{family}.yaml`             | Manifest entry (signature, workloads, roofline, source) |
 | S2 | `tileops/workloads/{family}.py`              | Workload class (input generation)                       |
-| S3 | `tileops/kernels/{family}/{op_slug}/` (`{op_slug}.py` + `__init__.py` + extracted kernels) | NPU kernel package (TileLang-based, NPUIR target)      |
+| S3 | `tileops/kernels/{family}/{op_slug}/` (`{op_slug}.py` + `__init__.py` + extracted kernels) | NPU kernel package (TileLang-based, selected backend)      |
 | S4 | `tileops/ops/{family}/{op_slug}.py`          | Op class (validation, reshape, dispatch, roofline)      |
 | S5 | `tests/ops/test_{op_slug}.py`                | Correctness tests vs PyTorch reference                  |
 | S6 | `benchmarks/ops/bench_{op_slug}.py`          | Performance benchmarks (manifest-driven)                |
@@ -63,13 +68,13 @@ flow). Instead:
 3. **Apply** the standard NPU adaptations (cross-cutting, listed once below).
 4. **Verify** structure (Tier 1); runtime verification (Tier 2) happens
    after the NPU kernel component rewrites the extracted kernels for
-   `target="npuir"`.
+   `the task-selected target`.
 
 **Scope boundary**: This skill ports the op's end-to-end structure
 (manifest, workload, Op class, Kernel class, custom_op wrapper, tests,
 benchmark) and extracts the GPU TileLang kernel functions via the
 extraction script, importing them into the kernel file. The NPU TileLang
-kernel *re-implementation* (adapting `@tilelang.jit` to `target="npuir"`
+kernel *re-implementation* (adapting `@tilelang.jit` to `the task-selected target`
 
 - `@T.prim_func` body) is authored by a separate NPU kernel component.
 
@@ -124,13 +129,13 @@ The TileLang kernel functions (e.g. `_{op_slug}_kernel_single`,
 the GPU repo via the extraction script and **imported** into the kernel
 file — the full GPU implementation (function signature, docstring, and
 `@T.prim_func` body) is pulled in as-is. The NPU TileLang re-implementation
-(adapting `@tilelang.jit` to `target="npuir"` and rewriting the body for
-NPUIR) is authored by a separate NPU kernel component, not by this skill.
+(adapting `@tilelang.jit` to `the task-selected target` and rewriting the body for
+the selected backend) is authored by a separate NPU kernel component, not by this skill.
 
 | #  | GPU original                                                      | NPU handling (this skill)                                                                                                                                                      |
 | -- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| K1 | `@tilelang.jit` decorator + `@T.prim_func` body (CUDA target) | **Extracted as-is** — the GPU implementation is imported directly; the NPU component rewrites the decorator to `target="npuir"` and adapts the body                   |
-| K2 | `T.Kernel(grid, threads=threads)` inside the prim_func body     | **Extracted as-is** — the NPU component rewrites for NPUIR grid/sync semantics                                                                                          |
+| K1 | `@tilelang.jit` decorator + `@T.prim_func` body (CUDA target) | **Extracted as-is** — the GPU implementation is imported directly; the NPU component rewrites the decorator to `the task-selected target` and adapts the body                   |
+| K2 | `T.Kernel(grid, threads=threads)` inside the prim_func body     | **Extracted as-is** — the NPU component rewrites for the selected backend's grid/sync semantics                                                                                          |
 | K3 | `threads` param in factory callable signature                   | **Preserved in extraction** — the NPU component removes `threads` (reduction ops' callable takes `block_m`; elementwise ops' callable takes `block_size` per K11) |
 | K4 | Pad N to`DEFAULT_ALIGNMENT` + masked loads (inside the body)    | **Extracted as-is** — the NPU component decides padding strategy during re-implementation                                                                               |
 
@@ -140,12 +145,12 @@ The **Kernel class** (e.g. `LogSumExpKernel`) is ported in full — config
 selection, tiling heuristics, and `forward` dispatch are preserved from the
 GPU version with GPU-specific parts adapted. The class calls the imported
 kernel functions (GPU implementations extracted in Part A); these will not
-run on NPU until the NPU component rewrites them for `target="npuir"`.
+run on NPU until the NPU component rewrites them for `the task-selected target`.
 
 | #   | GPU original                                                                                                                          | NPU adaptation                                                                                                                                                                                                                                                                                                                                                                                               |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | K5  | `supported_archs = [80, 86, 89, 90]` (CUDA SM ints)                                                                                 | `supported_archs = None` (all archs)                                                                                                                                                                                                                                                                                                                                                                       |
-| K6  | `device_smem_budget` via `torch.cuda.get_device_properties()`                                                                     | Import from`tileops.kernels.reduction._primitives` (already backend-agnostic)                                                                                                                                                                                                                                                                                                                              |
+| K6  | `device_smem_budget` via `torch.cuda.get_device_properties()`                                                                     | Use `tileops.utils.tiling` for pure tiling arithmetic and device budget queries. Allocation rules, alignment and compiler limits come from the selected platform; NPUIR callers retain the compatible `tileops.kernels.reduction._primitives` entry.                                                                                                                                                                                                                                                                                                                              |
 | K7  | `@torch.library.custom_op("top::...")`                                                                                              | `@torch.library.custom_op("npub::...")`                                                                                                                                                                                                                                                                                                                                                                    |
 | K8  | `autotune_configs`, `autotune()`, `_tile_n_candidates`, `_MAX_TILE_N_CANDIDATES`, `tune` param, `tune_by_forward`         | **All removed** — heuristic config selection only; `init_config(config)` (no `tune` arg)                                                                                                                                                                                                                                                                                                          |
 | K9  | `threads` in `default_config` dict and `forward` call                                                                           | **Removed** — reduction ops: `default_config` returns `{"block_m", "tile_n"}`; elementwise ops: `default_config` returns `{"block_size"}` (see K11); `forward` does not pass `threads`                                                                                                                                                                                                    |
@@ -248,7 +253,7 @@ The TileLang kernel functions are **extracted** from the GPU repo via the
 extraction script and **imported** into the kernel file. No manual stubbing
 is needed — the GPU kernel function implementations (signature, docstring,
 and `@T.prim_func` body) are pulled in directly as the reference for the
-NPU kernel component to reimplement for `target="npuir"`.
+NPU kernel component to reimplement for `the task-selected target`.
 
 **Run the extraction script** (from the NPU project root):
 
@@ -296,7 +301,7 @@ script.
   re-implementation, not by this skill.
 - **No stubbing**: the imported functions are the full GPU implementations;
   they serve as reference. The NPU component rewrites them for
-  `target="npuir"`.
+  `the task-selected target`.
 - **Helper function extraction (mandatory)**: If the GPU TileLang kernel
   functions reference helper functions (e.g. shared math helpers, utility
   wrappers, macro factories, or internal dispatchers defined in the GPU
@@ -306,7 +311,7 @@ script.
   `{op_slug}/` package must be self-contained: every name called by the
   extracted kernel functions must be defined within `{extracted_file}`.
   This keeps the implementation flow complete so the NPU kernel component
-  can trace the full call chain when reimplementing for `target="npuir"`.
+  can trace the full call chain when reimplementing for `the task-selected target`.
   If the extraction script does not automatically pull in a referenced
   helper, append it manually to `{extracted_file}` and add its name to the
   import statement in `{op_slug}.py`. When manually appending, copy the
@@ -335,7 +340,7 @@ script.
 The `@torch.library.custom_op` wrapper and the **Kernel class** are ported
 in full — they call the imported kernel functions (GPU implementations
 extracted in Part A), which the NPU component will reimplement for
-`target="npuir"`.
+`the task-selected target`.
 
 **Port from GPU**: Copy the `custom_op` wrapper, `register_fake`, and the
 Kernel class from `{gpu_repo_root}/tileops/kernels/<family>/*.py`.
@@ -358,9 +363,9 @@ template):
 - The Kernel class `__init__` constructs and caches the factory callable
   via `_{op_slug}_kernel(...)`. Since the imported functions are GPU
   implementations (CUDA target), they will not run on NPU until the NPU
-  component reimplements them for `target="npuir"` — this is expected.
+  component reimplements them for `the task-selected target` — this is expected.
   The class structure (config selection, cache logic) is ported so it is
-  ready once the kernel functions are rewritten for NPUIR.
+  ready once the kernel functions are rewritten for the selected backend.
 
 Create `tileops/kernels/{family}/{op_slug}/__init__.py` to make the
 `{op_slug}/` subfolder a proper Python package and re-export the kernel
@@ -512,7 +517,7 @@ python -m pytest benchmarks/ops/bench_{op_slug}.py --collect-only -q
 
 All Tier 1 checks must pass. This confirms the 7 files are structurally
 correct and the extracted kernel functions are properly imported — ready
-for the NPU kernel component to reimplement for `target="npuir"`.
+for the NPU kernel component to reimplement for `the task-selected target`.
 
 **Helper completeness check** (mandatory, Part A continuation): After
 Tier 1 passes, scan `{extracted_file}` for every callable name invoked
@@ -526,9 +531,9 @@ extraction (mandatory)" in S3 Part A), then re-run Tier 1. The
 `{op_slug}/` package must be self-contained before the per-kernel
 prompts are emitted in the Output Prompt step.
 
-#### Tier 2 — Runtime verification (after NPU kernel component rewrites kernels for NPUIR)
+#### Tier 2 — Runtime verification (after NPU kernel component rewrites kernels for the selected backend)
 
-Once the kernel functions are reimplemented for `target="npuir"` and
+Once the kernel functions are reimplemented for `the task-selected target` and
 integrated into the TileOPs wrapper, run from the TileOPs project root
 (`examples/TileOPs/` in this repository):
 
@@ -548,9 +553,7 @@ runtime correctness failure causes (for the NPU kernel component to address):
   the reference upcasts to fp32, precision may differ. Fix by adding fp32
   intermediates in the TileLang kernel (cast inputs to fp32, compute,
   cast back).
-- **NPUIR vsel shape mismatch**: if the kernel pads N and uses
-  `T.if_then_else` for boundary handling, switch to operating on raw N
-  (no padding) or select a `tile_n` that divides N evenly.
+- **Backend-specific shape or compilation errors**: follow the task platform's diagnostic rules.
 - **Multi-input `workloads_to_params` KeyError**: multi-input ops cannot
   use `workloads_to_params`; write a custom parametrization helper.
 
@@ -560,6 +563,8 @@ All paths below are relative to the NPU project root (working directory)
 unless prefixed with `{gpu_repo_root}/`.
 
 ### Primary
+
+- Read the task ruleset for backend-specific adaptation notes. The NPUIR notes are archived under its platform references; use them only for NPUIR tasks.
 
 - **Adaptation guide**: `docs/gpu_to_npu_adaptation.md` (NPU project) —
   the full catalogue of GPU-to-NPU adaptation points (common mechanism
@@ -593,7 +598,7 @@ then adapt to your op's specific flow:
 
 After all 7 files are created and **Tier 1 structural verification passes**,
 this skill emits **one migration prompt per extracted TileLang kernel
-function** for the **TileLang-NPUIR 算子端到端开发编排 Agent**
+function** for the **TileLang 算子端到端开发编排 Agent**
 (`tilelang-op-conductor`). If the op has N kernel functions extracted in
 S3 Part A, the skill emits N prompts — one per function.
 
@@ -601,7 +606,7 @@ S3 Part A, the skill emits N prompts — one per function.
 
 Each prompt hands off the NPU TileLang kernel *re-implementation* work
 for a **single** extracted kernel function (adapting it to
-`target="npuir"`) to the conductor agent, which then drives design →
+`the task-selected target`) to the conductor agent, which then drives design →
 develop → review → optimize stages end-to-end. Each prompt conveys:
 
 - Which op is being migrated and its manifest identity.
@@ -611,7 +616,7 @@ develop → review → optimize stages end-to-end. Each prompt conveys:
   per-kernel prompts for this op).
 - Where the op spec (workloads), correctness tests, and benchmarks live
   in the NPU project.
-- The programming mode to use (`developer`).
+- The programming mode selected for this task from the platform choices.
 
 ### When to emit
 
@@ -620,10 +625,10 @@ Emit the prompts **once**, immediately after Tier 1 (S7) passes. Emit
 functions (reported in its stdout), emit N prompts. Do **not** emit if
 Tier 1 fails — fix structural issues first. The prompts are not needed
 for Tier 2 (runtime verification), which is the conductor's
-responsibility after it rewrites the kernel functions for NPUIR.
+responsibility after it rewrites the kernel functions for the selected backend.
 
 **Mandatory constraint**: Regardless of whether the TileLang kernel
-functions in S3 Part A have already been reimplemented for `target="npuir"`
+functions in S3 Part A have already been reimplemented for `the task-selected target`
 (by a prior conductor run) or are still GPU implementations, **every
 execution of this skill must emit the full set of per-kernel prompts for
 the op**. Implementation status never suppresses the prompts — the skill
@@ -644,10 +649,14 @@ written in Chinese to match the conductor agent's working language.
 {op_name} 的规格见 examples/TileOPs/tileops/manifest/{family}.yaml中 {op_name} 的 workloads 部分。
 精度用例见 examples/TileOPs/tests/ops/test_{test_slug}.py，
 性能用例见 examples/TileOPs/benchmarks/ops/bench_{bench_slug}.py
-用 developer 模式实现。
+用 {programming_mode} 模式实现。
 ```
 
 ### Placeholder resolution
+
+`{programming_mode}` comes from the task-selected platform and explicit requirement, or its migration_default when the caller gave no preference. Use that same value in every per-function prompt. Never insert a different backend’s mode.
+
+`{programming_mode}` comes from the task-selected platform and explicit requirement, or its migration_default when the caller gave no preference. Use that same value in every per-function prompt. Never insert a different backend’s mode.
 
 Each placeholder is resolved from values gathered during Phase 0 and S1-S7.
 Do not ask the caller for additional input — all values are already known by
@@ -714,7 +723,7 @@ _logsumexp_kernel_single 是对外接口，不要改变接口的参数(除非该
 LogSumExpFwdOp 的规格见 examples/TileOPs/tileops/manifest/reduction.yaml中 LogSumExpFwdOp 的 workloads 部分。
 精度用例见 examples/TileOPs/tests/ops/test_softmax.py，
 性能用例见 examples/TileOPs/benchmarks/ops/bench_softmax.py
-用 developer 模式实现。
+用 {programming_mode} 模式实现。
 ```
 
 **Prompt 2** (for `_logsumexp_kernel_tiled`):
@@ -725,7 +734,7 @@ _logsumexp_kernel_tiled 是对外接口，不要改变接口的参数(除非该�
 LogSumExpFwdOp 的规格见 examples/TileOPs/tileops/manifest/reduction.yaml中 LogSumExpFwdOp 的 workloads 部分。
 精度用例见 examples/TileOPs/tests/ops/test_softmax.py，
 性能用例见 examples/TileOPs/benchmarks/ops/bench_softmax.py
-用 developer 模式实现。
+用 {programming_mode} 模式实现。
 ```
 
 ### Verification of the prompts

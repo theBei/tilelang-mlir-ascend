@@ -1,15 +1,3 @@
-# Ascend 910B2C Hardware Context
+# 旧任务硬件资料兼容入口
 
-## Target Platform
-
-- NPU Architecture: Ascend 910B2C
-- Visible NPU Count: 16
-- AIC Core Count per NPU: 24
-- AIV Core Count per NPU: 48
-- AI Core Rated Frequency: 1800 MHz
-- Profiling Tool: msprof
-
-## Memory Capacity
-
-- HBM Capacity per NPU: 65536 MB = 64 GB
-- UB Capacity per AI Core: 192 KB
+原 910B2C 资料完整保存在 [910B2C 历史硬件记录](../../../platforms/hardware/ascend-910b2c-notes.md)。该记录中的可见卡数和频率属于原环境观测。新任务使用所选型号配置和运行时查询结果，不从此入口取得其他型号的参数。

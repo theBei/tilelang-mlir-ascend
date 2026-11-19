@@ -27,7 +27,7 @@ Stage 3 返回运行失败（无标记且 exit code ≠ 0）时按子类型路�
 | 编译错误（实现层） | stderr 含 lowering / codegen 相关错误，且不属于设计层 API 误用 | Stage 3 内重试，要求 Developer 修复 |
 | Import 错误 | `ImportError` / `ModuleNotFoundError` | 检查平台规则列出的环境依赖和激活步骤，缺失时可标记 `BLOCKED_ENVIRONMENT` |
 | Shape 不匹配（实现层） | `shape mismatch`、`size mismatch`、tile shape 不一致 | Stage 3 内重试，将 shape 错误传入 Developer |
-| 内存层级越级 | stderr 提示 GM/L1/UB/L0 访问违规 | Stage 3 内重试，提示 Developer 复核 AGENTS.md 原则 4（硬件内存层级） |
+| 内存层级越级 | stderr 提示所选平台存储层级的访问违规 | Stage 3 内重试，提示 Developer 复核平台规则与 AGENTS.md 原则 4（硬件内存层级） |
 | 分核相关运行异常 | 跑测显著超时、kernel 启动数量异常（逻辑核数远超物理核数被串行调度） | Stage 3 内重试，传入超时/核数信息；Developer 判定为设计层分核缺陷时按 `[DESIGN_ERROR]` 走修订路径 B |
 | Pass / IR 变换错误 | stderr 含 `tilelang/transform` 或 IR pass 报错 | Stage 3 内重试，传入完整 stderr |
 | **设计层错误** | Developer 输出明确加 `[DESIGN_ERROR]` 标记 | 走设计修订循环（路径 B） |

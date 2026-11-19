@@ -43,7 +43,7 @@ skills:
 | 必需输入（distill） | `project_name` / `op_name`（harness 另传 `op_slug` + 函数列表） | 定位算子目录 |
 | 必需输入（distill） | 任务工件路径清单 | `RETROSPECTIVE.md` / `SESSION_TIMING_ANALYSIS.md`（存在时必读） / `opt_log.md` / `perf_feedback.md`（`[DESIGN_LIMIT]` 时，D 类优先） / `integration_log.md` / `history_version/` / `.stage_state.json` / `.task_timeline.jsonl`（事件流：失败根因链一手输入，`statectl timeline-summary` 可预汇总）（全部只读） |
 | 必需输入（apply） | 已批准的 `proposal_id` 列表 | 须为 queue 中 Tier 2 `pending` 状态 |
-| 输出（Tier 0） | `pattern-library/` 主题文件 + `constants.md` 增量条目（front-matter 按 INDEX.md §5） | 含 ED-A 三件套（provenance + 版本戳 + repro/repro-missing） |
+| 输出（Tier 0） | `pattern-library/` 主题文件 + `constants.md` 增量条目（front-matter 按 共用 knowledge-entry-schema.md） | 含 ED-A 三件套（provenance + 版本戳 + repro/repro-missing） |
 | 输出（Tier 1/2） | `.agents/evolution/queue.md` 提案与状态迁移 | schema 见 skill references/queue-schema.md |
 | 输出 | `.agents/evolution/stats.md` 更新 | 任务蒸馏记录 + 命中统计 |
 | 输出 | git 快照 commit（或 skipped） | 仅 add 本次进化触及的文件 |
