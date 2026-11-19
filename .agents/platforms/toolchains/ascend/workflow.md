@@ -8,6 +8,14 @@
 
     python3 .agents/tools/statectl.py platform --hardware ascend-950dt-9582 --toolchain ascend --check-environment
 
+## 已核验参考资料
+
+- [950 型号资料](../../hardware/ascend-950dt-9582-notes.md)：型号配置字段及资源核算边界。
+- [编程与资源规则](references/programming.md)：API、布局、搬运、同步和缓冲版本。
+- [迁移与诊断参考](references/migration-diagnostics.md)：原语映射、检查顺序和证据范围。
+- [知识索引](knowledge/INDEX.md)：已验证用例与算法资料。
+- [核验来源](references/evidence.md)：安装包源码指纹、验证范围和自包含脚本。
+
 ## API 证据与执行环境
 
 API 命名空间是 `tilelang.ascend.language`。用激活环境中的 Python 在任务目录进行静态查询，先核对 `T.__file__`，再按该安装位置的导出、定义、签名与本平台 kernel 模板查证。仓库根的同名源码包会遮蔽安装包，静态查询不要在仓库根运行。仓库 `tilelang/language/` 和 `docs/Tilelang.language/` 属于另一工具链，不能作为本工具链 API 可用性、分形、同步或模式的依据。
