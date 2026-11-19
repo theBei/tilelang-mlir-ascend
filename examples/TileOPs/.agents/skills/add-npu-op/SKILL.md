@@ -656,7 +656,6 @@ written in Chinese to match the conductor agent's working language.
 
 `{programming_mode}` comes from the task-selected platform and explicit requirement, or its migration_default when the caller gave no preference. Use that same value in every per-function prompt. Never insert a different backend’s mode.
 
-`{programming_mode}` comes from the task-selected platform and explicit requirement, or its migration_default when the caller gave no preference. Use that same value in every per-function prompt. Never insert a different backend’s mode.
 
 Each placeholder is resolved from values gathered during Phase 0 and S1-S7.
 Do not ask the caller for additional input — all values are already known by
@@ -723,7 +722,6 @@ _logsumexp_kernel_single 是对外接口，不要改变接口的参数(除非该
 LogSumExpFwdOp 的规格见 examples/TileOPs/tileops/manifest/reduction.yaml中 LogSumExpFwdOp 的 workloads 部分。
 精度用例见 examples/TileOPs/tests/ops/test_softmax.py，
 性能用例见 examples/TileOPs/benchmarks/ops/bench_softmax.py
-用 {programming_mode} 模式实现。
 ```
 
 **Prompt 2** (for `_logsumexp_kernel_tiled`):
@@ -734,7 +732,6 @@ _logsumexp_kernel_tiled 是对外接口，不要改变接口的参数(除非该�
 LogSumExpFwdOp 的规格见 examples/TileOPs/tileops/manifest/reduction.yaml中 LogSumExpFwdOp 的 workloads 部分。
 精度用例见 examples/TileOPs/tests/ops/test_softmax.py，
 性能用例见 examples/TileOPs/benchmarks/ops/bench_softmax.py
-用 {programming_mode} 模式实现。
 ```
 
 ### Verification of the prompts

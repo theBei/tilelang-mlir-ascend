@@ -63,7 +63,9 @@ def parse_entries(path: str) -> list:
     parts = re.split(r"(?m)^---\s*$", text)
     for i in range(1, len(parts) - 1, 2):
         fm_raw = parts[i]
-        m = re.search(r"^toolchain_stamp:[ \t]*(.+)$", fm_raw, re.M) or re.search(r"^toolchain:[ \t]*(.+)$", fm_raw, re.M)
+        m = re.search(r"^toolchain_stamp:[ \t]*(.+)$", fm_raw, re.M) or re.search(
+            r"^toolchain:[ \t]*(.+)$", fm_raw, re.M
+        )
         scope = dict(re.findall(r"(?m)^([a-z_]+):[ \t]*(.*)$", fm_raw))
         if not knowledge_entry_applies(scope):
             continue

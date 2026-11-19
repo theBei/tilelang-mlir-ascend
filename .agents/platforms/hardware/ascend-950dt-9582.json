@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "hardware_id": "ascend-950dt-9582",
-  "device_names": ["Ascend950DT_9582"],
+  "device_names": [
+    "Ascend950DT_9582"
+  ],
   "capacity_bytes": {
     "UB": 253952,
     "L1": 524288,
@@ -12,5 +14,9 @@
     "cube": 32,
     "vector": 64
   },
-  "core_source": "CANN 9.0.0 Ascend950DT_9582.ini and TileOPs ascend950 toolchain lock"
+  "core_source": "CANN 9.0.0 Ascend950DT_9582.ini and TileOPs ascend950 toolchain lock",
+  "architecture": "dav-3510",
+  "compatible_revisions": {
+    "c5dbd8e5cb29c243fb995dd60562ff4dac61c4e86ff8a59e79ea4df7ef570fdb": "cf3326890c35574ace593cdc462e376f0d0929ccdf05d2472f5110679c752349"
+  }
 }

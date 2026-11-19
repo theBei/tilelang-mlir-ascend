@@ -2,7 +2,7 @@
 
 > 本文件是 evolver Phase 3/4 的执行标准。核心思想（源自业界 ACE / Voyager / Mem0 实践，见 docs/developer/conductor-self-evolution-design.md §1）：**增量 delta 而非重写、写入须验证门、冲突须消解、文件须有预算、进化须可回滚**。
 >
-> 2026-09-10 修订（conductor 改进报告 ED-A/C、E-3/E-4、K-2 落地）：证据三件套语义按 ED-A 重定义（provenance / 版本戳 / repro 分离，见 distillation-rules.md §5）；D 类合入门槛与 repro 责任前移见 `1/`2；预算从行数改为**字节预算**；apply 预验证见 §8。
+> 2026-09-10 修订（conductor 改进报告 ED-A/C、E-3/E-4、K-2 落地）：证据三件套语义按 ED-A 重定义（provenance / 版本戳 / repro 分离，见 distillation-rules.md §5）；D 类合入门槛与 repro 责任前移见 §1/§2；预算从行数改为**字节预算**；apply 预验证见 §8。
 
 ## 目录
 

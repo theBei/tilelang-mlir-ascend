@@ -64,5 +64,8 @@
       "dtype": "fp32",
       "bytes": 4
     }
+  },
+  "compatible_revisions": {
+    "f39075bb7bfcef88ce333999c2965fb8a35b22d205173118b9cc02785ead7fdd": "a1b065161f63088ab7d6382a535c00265d7b1114165de148824151dd00fb213f"
   }
 }

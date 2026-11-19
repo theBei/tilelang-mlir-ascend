@@ -171,7 +171,7 @@ before emitting — the conductor agent will act on each prompt verbatim.
 
 ## 分核查询与编译限制
 
-原分核依据见仓库 `docs/开发指南.md` `3.3：`NPUUtils.get().get_aicore_num()`；历史 Vector 换算取两倍。新任务按本工具链 workflow 记录实际 Cube/Vector 核数。原核内串行静态边界限制与相应示例也仅作为本工具链的编译约束核验。
+原分核依据见仓库 `docs/开发指南.md` §3.3：`NPUUtils.get().get_aicore_num()`；历史 Vector 换算取两倍。新任务按本工具链 workflow 记录实际 Cube/Vector 核数。原核内串行静态边界限制与相应示例也仅作为本工具链的编译约束核验。
 
 ## 原迁移入口约定
 

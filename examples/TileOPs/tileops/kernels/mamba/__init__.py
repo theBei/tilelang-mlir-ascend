@@ -2,9 +2,12 @@
 
 from importlib import import_module
 
-_EXPORTS = {'SSDChunkScanFwdKernel': ('tileops.kernels.mamba.ssd_chunk_scan', 'SSDChunkScanFwdKernel')}
+_EXPORTS = {
+    "SSDChunkScanFwdKernel": ("tileops.kernels.mamba.ssd_chunk_scan", "SSDChunkScanFwdKernel")
+}
 
-__all__ = ['SSDChunkScanFwdKernel']
+__all__ = ["SSDChunkScanFwdKernel"]
+
 
 def __getattr__(name):
     if name not in _EXPORTS:

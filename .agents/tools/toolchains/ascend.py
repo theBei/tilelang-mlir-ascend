@@ -17,7 +17,7 @@ import tempfile
 from importlib import metadata
 from pathlib import Path
 
-from .tileops_contract import _read_text, integration_lint, meta_lint
+from .tileops_contract import integration_lint, meta_lint
 from .adapter import ToolchainAdapter
 from .cann_profile import benchmark_profile_result
 
@@ -44,10 +44,12 @@ class AscendToolchain(ToolchainAdapter):
         return profile
 
     def shared_memory_budget(self, device=None):
-        raise RuntimeError("this toolchain requires a task with an explicit hardware model")
+        raise RuntimeError(
+            "this toolchain requires a task with an explicit hardware model"
+        )
 
     def has_matrix_path(self, design):
-        return bool(re.search(r"^[ \t]*T\.gemm\s*\(", design, re.M))
+        return bool(re.search(r"^[ \t]*T\.gemm(?:_blockscaled)?\s*\(", design, re.M))
 
     def matrix_path_required_message(self):
         return "no Ascend Cube GEMM call found in the design pseudocode"
@@ -69,7 +71,9 @@ class AscendToolchain(ToolchainAdapter):
                     import torch
                     import torch_npu  # noqa: F401 -- registers torch.npu
 
-                    properties = torch.npu.get_device_properties(torch.npu.current_device())
+                    properties = torch.npu.get_device_properties(
+                        torch.npu.current_device()
+                    )
             finally:
                 ctypes.CDLL(None).fflush(None)
                 os.dup2(saved_stdout, 1)
@@ -168,8 +172,14 @@ class AscendToolchain(ToolchainAdapter):
         if os.environ.get("IS_SIMULATOR_ENV") != "true":
             return super().execution_command(command, output_dir=output_dir)
         return [
-            "cannsim", "record", "-s", os.environ["soc_version"],  # noqa: SIM112 -- vendor variable
-            "-n", "0", "-o", output_dir or tempfile.mkdtemp(prefix="tilelang-simulator-"),
+            "cannsim",
+            "record",
+            "-s",
+            os.environ["soc_version"],  # noqa: SIM112 -- vendor variable
+            "-n",
+            "0",
+            "-o",
+            output_dir or tempfile.mkdtemp(prefix="tilelang-simulator-"),
             shlex.join(command),
         ]
 
@@ -234,17 +244,24 @@ class AscendToolchain(ToolchainAdapter):
         stamp, _ = self._environment(repo_root)
         return stamp
 
-    def check_environment(self, repo_root):
-        stamp, errors = self._environment(repo_root)
+    def check_environment(self, repo_root, *, hardware=None):
+        stamp, errors = self._environment(repo_root, hardware=hardware)
         if errors:
             raise RuntimeError("Ascend toolchain mismatch: " + " | ".join(errors))
         return stamp
 
-    def _environment(self, repo_root):
+    def _environment(self, repo_root, *, hardware=None):
         profile = self.workflow_context()
         lock_path = Path(repo_root) / profile["environment_lock"]
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
         errors = []
+        if (
+            hardware is not None
+            and os.environ.get("ASCEND_NPU_ARCH") != hardware["architecture"]
+        ):
+            errors.append(
+                f"ASCEND_NPU_ARCH: expected {hardware['architecture']}, got {os.environ.get('ASCEND_NPU_ARCH')}"
+            )
         cxx = os.environ.get("CXX", "g++")
         try:
             compiler = subprocess.check_output(
@@ -256,11 +273,6 @@ class AscendToolchain(ToolchainAdapter):
             ("machine", platform.machine(), lock["machine"]),
             ("python", platform.python_version(), lock["python"]),
             ("CXX", compiler, lock["cxx_version"]),
-            (
-                "ASCEND_NPU_ARCH",
-                os.environ.get("ASCEND_NPU_ARCH"),
-                profile["architecture"],
-            ),
         ):
             if actual != expected:
                 errors.append(f"{name}: expected {expected}, found {actual}")
@@ -311,21 +323,6 @@ class AscendToolchain(ToolchainAdapter):
             "runtime_opp": lock["runtime_opp"] if not errors else None,
             "compiler": compiler,
         }, errors
-
-    def migration_mode(self, source_repo, operator):
-        root = Path(source_repo)
-        directories = ("tileops/manifest", "tests/ops", "benchmarks/ops")
-        if not all((root / directory).is_dir() for directory in directories):
-            return "plain"
-        key = re.compile(f"^{re.escape(operator)}:", re.M)
-        return (
-            "harness"
-            if any(
-                key.search(_read_text(str(path)) or "")
-                for path in (root / directories[0]).glob("*.yaml")
-            )
-            else "plain"
-        )
 
     def scaffold_checks(self, meta_path, repo_root):
         return meta_lint(meta_path, repo_root)

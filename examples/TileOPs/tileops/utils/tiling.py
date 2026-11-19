@@ -1,4 +1,5 @@
 """Pure tiling arithmetic with explicit platform constraints."""
+
 from tileops.utils.task_platform import shared_memory_budget
 
 

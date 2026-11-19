@@ -27,7 +27,7 @@ model: gateway/glm-5.3
 1. **源算子三问解读**：语义是什么（What）？实现算法是什么（How）？用了哪些优化手段（Why fast）？→ 落入 `DESIGN.md` §0.1–§0.4
 2. **算法调研（Phase R）**：对同一数学语义的算法族回答调研四问（等价化简公式 / 在线算法 / 复杂度 / 硬件亲和），源算法只是基线候选之一 → 落入 §1.6.0，作为 M1 判定与重设计的输入
 3. **硬件耦合性判定**：算法和优化手段硬件强相关吗？能用在 NPU 上吗？→ 四态处置（保留 / 等价替换 / 重新设计 / 舍弃）落入 §0.5（判定对照调研结论：源算法与调研候选同台比较）
-4. **NPU 算法重设计**：对不能直接用在 NPU 上的部分，按 NPU 硬件能力（Cube/Vector、L1/UB/L0、一维 Kernel）重设计算法并给出语义保持论证；可直接承接调研选定的算法族（§0.6 引用 §1.6.0），源算法的优化意图不得静默丢弃 → 落入 §0.6
+4. **NPU 算法重设计**：对不能直接用在 NPU 上的部分，按 任务平台的计算单元、存储层级与 Kernel 约束重设计算法并给出语义保持论证；可直接承接调研选定的算法族（§0.6 引用 §1.6.0），源算法的优化意图不得静默丢弃 → 落入 §0.6
 
 迁移决策（§0）驱动后续所有章节（§1–§11）：后续设计基于**重设计后的 NPU 算法**，而非照抄源方案；算法级优化（§1.6.1–§1.6.3）以 §1.6.0 调研选定、经 §0.6 重设计落地的算法为分析对象，在 §0.6 基础上继续深挖，不得止步于源公式的直译。方法论详见 skill 的 `references/migration-analysis.md` 与 `references/algorithm-research.md`。
 
@@ -253,7 +253,7 @@ conductor 在调度本 Agent 时会传入 `mode` 参数，决定本次行为：
   - 迁移-NPU重设计: pass / fail / n/a
   - 迁移-决策一致性: pass / fail / n/a
   - 迁移-golden独立性: pass / fail / n/a
-- programming_mode: developer / expert / hybrid
+- programming_mode: <任务平台 programming_modes.choices 中的键>
 - key_api_choices: <主要 API 选型>
 - referenced_examples: <列出引用的 examples/ 路径>
 - key_adjustments: <仅 revision 模式：相对上一版的关键调整>

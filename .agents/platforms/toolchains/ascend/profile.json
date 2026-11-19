@@ -5,7 +5,6 @@
   "supported_hardware": [
     "ascend-950dt-9582"
   ],
-  "architecture": "dav-3510",
   "environment_lock": ".agents/platforms/toolchains/ascend/toolchain.lock.json",
   "design_rules": {
     "table_levels": [
@@ -64,5 +63,8 @@
     "review": "tilelang-ascend",
     "develop": "tilelang-ascend",
     "optimize": "tilelang-ascend"
+  },
+  "compatible_revisions": {
+    "713dd29045098e397379358850f37d2eb6211de3dc24f6d6b2a36445b2ab62ef": "9b8702e0af731844c53549ff73354877cbe859571c5e9198a39e0451c42e29b1"
   }
 }

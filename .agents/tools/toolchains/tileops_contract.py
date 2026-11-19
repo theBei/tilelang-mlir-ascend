@@ -4,6 +4,8 @@ import ast
 import json
 import os
 import re
+from pathlib import Path
+
 
 def _read_text(path: str) -> str | None:
     try:
@@ -18,6 +20,7 @@ def _fail(rule_id: str, file: str, message: str) -> dict:
 
 
 _warn = _fail
+
 
 def meta_lint(meta_path: str, repo_root: str):
     """Stage 0 gate: .migration_meta.json schema + TileOPs 7-file scaffold."""
@@ -87,6 +90,7 @@ def meta_lint(meta_path: str, repo_root: str):
 
 
 WRAPPER_PERF_IMPORT_RE = re.compile(r"^\s*#\s*(?:from|import)\s+.*perf_opt", re.M)
+
 
 def integration_lint(migration_state: dict, repo_root: str, *, integration_mode):
     """Stage 5 gate: integration package, wrapper, and single-op report.
@@ -174,8 +178,7 @@ def integration_lint(migration_state: dict, repo_root: str, *, integration_mode)
             if (
                 len(classes) != 1
                 or len(class_modes) != 1
-                or set(class_modes)
-                != source_modes
+                or set(class_modes) != source_modes
             ):
                 failures.append(
                     _fail(
@@ -348,3 +351,19 @@ def integration_lint(migration_state: dict, repo_root: str, *, integration_mode)
             )
         )
     return failures, warnings
+
+
+def migration_mode(source_repo, operator):
+    root = Path(source_repo)
+    directories = ("tileops/manifest", "tests/ops", "benchmarks/ops")
+    if not all((root / directory).is_dir() for directory in directories):
+        return "plain"
+    key = re.compile(f"^{re.escape(operator)}:", re.M)
+    return (
+        "harness"
+        if any(
+            key.search(_read_text(str(path)) or "")
+            for path in (root / directories[0]).glob("*.yaml")
+        )
+        else "plain"
+    )

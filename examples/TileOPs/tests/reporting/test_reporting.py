@@ -900,3 +900,31 @@ def test_session_timing_flag_is_available_for_run_and_render():
 
     assert run_args.with_session_timing is True
     assert render_args.with_session_timing is True
+
+
+def test_standalone_npu_budget_and_profile_without_agent_task(tmp_path, monkeypatch):
+    import sys
+
+    from tileops.device import NPUBackend
+    from tileops.utils.task_platform import get_task_platform
+
+    monkeypatch.delenv("TILEOPS_TASK_DIR", raising=False)
+    context_module = sys.modules.get("platform_context")
+    if context_module is not None:
+        monkeypatch.setattr(
+            context_module,
+            "ACTIVE",
+            __import__("contextvars").ContextVar("standalone", default=None),
+        )
+    assert get_task_platform() is None
+    assert NPUBackend().shared_memory_budget() > 0
+    (tmp_path / "OpBasicInfo.csv").write_text("Op Name,Task Duration(us)\nmain,12.5\n")
+    assert _parse_op_basic_info(str(tmp_path)) == ([12.5], "main", ["main"])
+
+
+def test_explicit_invalid_agent_task_is_not_ignored(tmp_path, monkeypatch):
+    from tileops.utils.task_platform import get_task_platform
+
+    monkeypatch.setenv("TILEOPS_TASK_DIR", str(tmp_path))
+    with pytest.raises(ValueError, match="no task state"):
+        get_task_platform()

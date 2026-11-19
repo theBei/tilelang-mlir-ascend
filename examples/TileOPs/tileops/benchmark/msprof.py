@@ -356,7 +356,11 @@ def _task_adapter():
     from tileops.utils.task_platform import get_task_platform
 
     context = get_task_platform()
-    return context.adapter
+    if context is not None:
+        return context.adapter
+    from tileops.device import NPUBackend
+
+    return NPUBackend().profiler_adapter()
 
 
 def bench_kernel_msprof(

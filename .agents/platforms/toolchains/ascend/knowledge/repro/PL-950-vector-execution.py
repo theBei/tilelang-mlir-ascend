@@ -1,12 +1,15 @@
 """PL-950-vector-execution: fixed SIMD width and GM tail copies.
 First verified: 2026-11-18 TileLang ascend 0.1.15 + CANN 9.1 simulator.
 """
+
 import functools
 import json
 import torch
 import torch_npu  # noqa: F401 -- registers the NPU backend
 import tilelang
 import tilelang.ascend.language as T
+
+
 @T.macro
 def _body(x, y, width: int, dtype: str, floating: bool):
     if floating:
@@ -32,11 +35,14 @@ def _body(x, y, width: int, dtype: str, floating: bool):
         with T.SimtVF(threads=256):
             for i in T.Parallel(width):
                 y[i] = T.if_then_else(x[i] < 0, -x[i], x[i])
+
+
 @functools.lru_cache(maxsize=256)
 def build(n, dtype, floating, tile=16384, blocks=64, stages=3):
     full, tail = divmod(n, tile)
     grid = min(blocks, full) if full else 1
     padded_tail = (tail + 255) // 256 * 256
+
     @T.prim_func
     def main(X: T.Tensor((n,), dtype), Y: T.Tensor((n,), dtype)):
         with T.Kernel(grid) as bx:
@@ -58,20 +64,26 @@ def build(n, dtype, floating, tile=16384, blocks=64, stages=3):
                     T.copy(X[full * tile : n], xt[:tail], l2_cache_ctrl=4)
                     _body(xt, yt, padded_tail, dtype, floating)
                     T.copy(yt[:tail], Y[full * tile : n], l2_cache_ctrl=0)
+
     return tilelang.compile(main, target="ascend", out_idx=-1)
+
+
 for n in (256, 257):
     cpu_x = torch.linspace(-3, 3, n, dtype=torch.float32)
     x = cpu_x.to("npu")
     fn = build(n, "int32", True, tile=256, blocks=1, stages=1)
     result = fn(x.view(torch.int32)).view(torch.float32).cpu()
     torch.testing.assert_close(result, cpu_x.abs(), atol=0, rtol=0)
-    print(json.dumps({"case": "simd_abs", "n":n, "precision":"pass"}), flush=True)
+    print(json.dumps({"case": "simd_abs", "n": n, "precision": "pass"}), flush=True)
 print("[PRECISION_PASS]", flush=True)
+
+
 @functools.lru_cache
 def build_simt(n):
     tile = 256
     full, tail = divmod(n, tile)
     grid = full + bool(tail)
+
     @T.prim_func
     def main(X: T.Tensor((n,), "float32"), Y: T.Tensor((n,), "float32")):
         with T.Kernel(grid) as bx:
@@ -91,7 +103,10 @@ def build_simt(n):
                         for i in T.Parallel(tail):
                             y[i] = T.if_then_else(x[i] < 0, -x[i], x[i])
                     T.copy(y[:tail], Y[full * tile : n])
+
     return tilelang.compile(main, target="ascend", out_idx=-1)
+
+
 for n in (256, 257):
     x = torch.linspace(-3, 3, n, dtype=torch.float32).to("npu")
     torch.testing.assert_close(build_simt(n)(x).cpu(), x.cpu().abs(), atol=0, rtol=0)

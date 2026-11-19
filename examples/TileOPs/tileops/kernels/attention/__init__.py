@@ -2,9 +2,12 @@
 
 from importlib import import_module
 
-_EXPORTS = {'GQAPrefillFwdKernel': ('tileops.kernels.attention.multi_head_attention', 'GQAPrefillFwdKernel')}
+_EXPORTS = {
+    "GQAPrefillFwdKernel": ("tileops.kernels.attention.multi_head_attention", "GQAPrefillFwdKernel")
+}
 
-__all__ = ['GQAPrefillFwdKernel']
+__all__ = ["GQAPrefillFwdKernel"]
+
 
 def __getattr__(name):
     if name not in _EXPORTS:

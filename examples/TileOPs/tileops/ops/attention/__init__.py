@@ -2,9 +2,15 @@
 
 from importlib import import_module
 
-_EXPORTS = {'MultiHeadAttentionFwdOp': ('tileops.ops.attention.multi_head_attention', 'MultiHeadAttentionFwdOp')}
+_EXPORTS = {
+    "MultiHeadAttentionFwdOp": (
+        "tileops.ops.attention.multi_head_attention",
+        "MultiHeadAttentionFwdOp",
+    )
+}
 
-__all__ = ['MultiHeadAttentionFwdOp']
+__all__ = ["MultiHeadAttentionFwdOp"]
+
 
 def __getattr__(name):
     if name not in _EXPORTS:

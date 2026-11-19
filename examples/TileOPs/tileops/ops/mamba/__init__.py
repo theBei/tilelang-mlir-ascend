@@ -2,9 +2,10 @@
 
 from importlib import import_module
 
-_EXPORTS = {'SSDChunkScanFwdOp': ('tileops.ops.mamba.ssd_chunk_scan', 'SSDChunkScanFwdOp')}
+_EXPORTS = {"SSDChunkScanFwdOp": ("tileops.ops.mamba.ssd_chunk_scan", "SSDChunkScanFwdOp")}
 
-__all__ = ['SSDChunkScanFwdOp']
+__all__ = ["SSDChunkScanFwdOp"]
+
 
 def __getattr__(name):
     if name not in _EXPORTS:

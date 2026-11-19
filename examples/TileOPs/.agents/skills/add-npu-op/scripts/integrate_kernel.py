@@ -111,7 +111,9 @@ def find_design_doc(kernel_src: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode: str | None) -> bool:
+def sync_wrapper_ascend_mode(
+    wrapper_path: Path, kernel_class: str | None, mode: str | None
+) -> bool:
     """Set the Kernel subclass mode once, without changing other wrapper logic."""
     source = wrapper_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -141,9 +143,7 @@ def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode:
     if len(assignments) > 1:
         raise SystemExit(f"[error] {wrapper_path}: duplicate ascend_mode in {cls.name}")
     lines = source.splitlines(keepends=True)
-    declaration = (
-        "    ascend_mode = None\n" if mode is None else f'    ascend_mode = "{mode}"\n'
-    )
+    declaration = "    ascend_mode = None\n" if mode is None else f'    ascend_mode = "{mode}"\n'
     if assignments:
         current = assignments[0]
         if not isinstance(current.value, ast.Constant) or current.end_lineno != current.lineno:
@@ -352,12 +352,17 @@ def main() -> None:
     ap.add_argument("--tileops-root", type=Path, default=None)
     ap.add_argument("--examples-root", type=Path, default=None)
     sys.path.insert(0, str(Path(__file__).resolve().parents[6] / ".agents/tools"))
-    from platform_context import add_platform_args, command_platform
+    from platform_context import add_platform_args, run_with_platform
 
     add_platform_args(ap)
     ap.add_argument("--skip-smoke", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    return run_with_platform(ap, args, run, Path.cwd())
+
+
+def run(args):
+    from platform_context import get_adapter
 
     meta = load_meta(args.meta) if args.meta else {}
     op_slug = args.op_slug or meta.get("op_slug")
@@ -402,10 +407,7 @@ def main() -> None:
         wrapper_names = list(functions)
 
     sources = {f: find_conductor_file(f, examples_root, op_slug, overrides) for f in functions}
-    adapter = command_platform(
-        argparse.Namespace(task_dir=str(args.task_dir) if args.task_dir else None,
-                  hardware=args.hardware, toolchain=args.toolchain)
-    ).adapter
+    adapter = get_adapter()
     source_modes = {func: adapter.integration_mode(src) for func, src in sources.items()}
     unique_modes = set(source_modes.values())
     if len(unique_modes) != 1:

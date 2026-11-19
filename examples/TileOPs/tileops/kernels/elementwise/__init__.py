@@ -2,9 +2,13 @@
 
 from importlib import import_module
 
-_EXPORTS = {'LerpTensorFwdKernel': ('tileops.kernels.elementwise.lerp_tensor', 'LerpTensorFwdKernel'), 'MishFwdKernel': ('tileops.kernels.elementwise.mish', 'MishFwdKernel')}
+_EXPORTS = {
+    "LerpTensorFwdKernel": ("tileops.kernels.elementwise.lerp_tensor", "LerpTensorFwdKernel"),
+    "MishFwdKernel": ("tileops.kernels.elementwise.mish", "MishFwdKernel"),
+}
 
-__all__ = ['LerpTensorFwdKernel', 'MishFwdKernel']
+__all__ = ["LerpTensorFwdKernel", "MishFwdKernel"]
+
 
 def __getattr__(name):
     if name not in _EXPORTS:

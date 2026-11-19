@@ -375,8 +375,10 @@ def lint_extra_kb_files(tracked: set | None, failures: list, warnings: list) -> 
     """Line-level KB-PROC-REF scan for the other KB prose files whose entries
     are heading-based rather than front-matter based."""
     knowledge = get_platform().toolchain["knowledge"]
-    files = [os.path.join(REPO_ROOT, knowledge[key])
-             for key in ("bottlenecks", "capability_gaps")]
+    files = [
+        os.path.join(REPO_ROOT, knowledge[key])
+        for key in ("bottlenecks", "capability_gaps")
+    ]
     for path in files:
         if not os.path.isfile(path) or tracked is None:
             continue

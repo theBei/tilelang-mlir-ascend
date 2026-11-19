@@ -1,8 +1,8 @@
-# TileLang ascend 与 Ascend950DT_9582
+# TileLang ascend 工具链规则
 
 ## 环境与硬件
 
-编译环境参考 [TileOPs ascend950 工具链说明](https://github.com/yyttt6/TileOPs/blob/ascend950/docs/ascend950/toolchain.md)，版本和文件指纹以本平台的 toolchain.lock.json 为准。使用 ARM64、官方 TileLang 0.1.15 wheel、CANN 9.2.0 release 编译 SDK、独立 CANN 9.1.0 runtime/OPP，以及锁定的 Python、PyTorch、torch-npu 和 C++ 编译器。按上游文档设置 ASCEND_HOME_PATH、ASCEND_RUNTIME_ROOT、ASCEND_NPU_ARCH=dav-3510 以及动态库路径。
+编译环境参考 [TileOPs ascend950 工具链说明](https://github.com/yyttt6/TileOPs/blob/ascend950/docs/ascend950/toolchain.md)，版本和文件指纹以本平台的 toolchain.lock.json 为准。使用 ARM64、官方 TileLang 0.1.15 wheel、CANN 9.2.0 release 编译 SDK、独立 CANN 9.1.0 runtime/OPP，以及锁定的 Python、PyTorch、torch-npu 和 C++ 编译器。按上游文档设置 ASCEND_HOME_PATH、ASCEND_RUNTIME_ROOT、ASCEND_NPU_ARCH=<hardware.architecture> 以及动态库路径。
 
 用以下命令在 CPU 上检查软件版本和文件指纹。真机上改用 --probe，查询 torch.npu.get_device_properties 并验证设备型号和工具链。正式运行前用同一组合初始化或验证任务状态。
 

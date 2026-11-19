@@ -75,7 +75,9 @@ class ToolchainAdapter(ABC):
         """Read samples from the profiler's native output."""
 
     @abstractmethod
-    def benchmark_profiler_args(self, kernel, output, launch_count, warm_up) -> list[str]:
+    def benchmark_profiler_args(
+        self, kernel, output, launch_count, warm_up
+    ) -> list[str]:
         """Build the framework latency-collection command."""
 
     @abstractmethod
@@ -100,7 +102,9 @@ class ToolchainAdapter(ABC):
     def shared_memory_budget(self, device=None) -> int:
         """Query the framework memory budget for historical tasks without a model."""
 
-    def execution_command(self, command: list[str], *, output_dir: str | None = None) -> list[str]:
+    def execution_command(
+        self, command: list[str], *, output_dir: str | None = None
+    ) -> list[str]:
         """Build a runnable command for the selected execution environment."""
         return list(command)
 
@@ -117,21 +121,25 @@ class ToolchainAdapter(ABC):
             ),
         }
 
-    def check_environment(self, repo_root: str) -> dict:
+    def check_environment(self, repo_root: str, *, hardware=None) -> dict:
         """Return the stamp after checking the active toolchain."""
         stamp = self.toolchain_stamp(repo_root, active=True)
         if not all(stamp.get(key) for key in ("tilelang", "cann", "compiler")):
             backend = self.workflow_context()["backend"].upper()
-            raise RuntimeError(f"active {backend} toolchain version could not be verified")
+            raise RuntimeError(
+                f"active {backend} toolchain version could not be verified"
+            )
         return stamp
 
     @abstractmethod
     def toolchain_stamp(self, repo_root: str, *, active: bool = False) -> dict:
         """Read the platform's current toolchain stamp."""
 
-    @abstractmethod
     def migration_mode(self, source_repo: str, operator: str) -> str:
         """Classify the source project using its existing integration contract."""
+        from .tileops_contract import migration_mode
+
+        return migration_mode(source_repo, operator)
 
     @abstractmethod
     def scaffold_checks(self, meta_path: str, repo_root: str):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -61,6 +62,8 @@ class PlatformContext:
     hardware: dict | None
     compatibility: dict | None = None
     runtime: dict | None = None
+    task_dir: Path | None = None
+    pinned_config: dict | None = None
 
     @property
     def selection(self):
@@ -69,9 +72,10 @@ class PlatformContext:
         return {
             "hardware_id": self.hardware["hardware_id"],
             "toolchain_id": self.toolchain["toolchain_id"],
-            "platform_config": {
-                "hardware": config_revision(self.hardware),
-                "toolchain": config_revision(self.toolchain),
+            "platform_config": self.pinned_config
+            or {
+                "hardware": effective_revision(self.hardware),
+                "toolchain": effective_revision(self.toolchain),
             },
         }
 
@@ -147,7 +151,7 @@ class PlatformContext:
 
     def check_environment(self):
         try:
-            return self.adapter.check_environment(str(ROOT))
+            return self.adapter.check_environment(str(ROOT), hardware=self.hardware)
         except (OSError, RuntimeError) as exc:
             raise PlatformError(str(exc)) from exc
 
@@ -220,9 +224,13 @@ def resolve_platform(hardware=None, toolchain=None, *, detect=False, state=None)
                 "task state must contain both hardware_id and toolchain_id"
             )
     if not toolchain:
-        raise PlatformError("select a toolchain explicitly or supply an existing task directory")
+        raise PlatformError(
+            "select a toolchain explicitly or supply an existing task directory"
+        )
     if not hardware and not detect:
-        raise PlatformError("select a hardware model explicitly or supply an existing task directory")
+        raise PlatformError(
+            "select a hardware model explicitly or supply an existing task directory"
+        )
     if toolchain not in TOOLCHAINS:
         raise PlatformError(f"unknown toolchain: {toolchain}")
     adapter = TOOLCHAINS[toolchain]()
@@ -240,14 +248,44 @@ def resolve_platform(hardware=None, toolchain=None, *, detect=False, state=None)
         profiles[hardware],
         runtime=state.get("platform_runtime") if state is not None else None,
     )
-    if (
-        state is not None
-        and state.get("platform_config") != context.selection["platform_config"]
-    ):
-        raise PlatformError(
-            "hardware or toolchain configuration changed since task initialization"
-        )
+    if state is not None:
+        saved_config = state.get("platform_config")
+        if not compatible_config(context, saved_config):
+            raise PlatformError(
+                "hardware or toolchain configuration changed since task initialization"
+            )
+        context = replace(context, pinned_config=saved_config)
     return context
+
+
+def effective_revision(config):
+    """Exclude catalogue and compatibility metadata from execution rules."""
+    return config_revision(
+        {
+            key: value
+            for key, value in config.items()
+            if key not in {"supported_hardware", "compatible_revisions"}
+        }
+    )
+
+
+def compatible_config(context, saved):
+    """Accept identical rules or an explicitly equivalent configuration revision."""
+    if (
+        not isinstance(saved, dict)
+        or set(saved) != {"hardware", "toolchain"}
+        or any(not isinstance(value, str) for value in saved.values())
+    ):
+        return False
+    return all(
+        saved[key] == effective_revision(config)
+        or config.get("compatible_revisions", {}).get(saved[key])
+        == effective_revision(config)
+        for key, config in (
+            ("hardware", context.hardware),
+            ("toolchain", context.toolchain),
+        )
+    )
 
 
 def task_state_path(directory, *, exact=False, state_files=STATE_FILES):
@@ -285,13 +323,15 @@ def command_platform(args, directory=None):
             raise PlatformError(
                 "selected task platform differs from the artifact's task"
             )
-    return platform
+    return replace(platform, task_dir=path.parent if path else None)
 
 
 def get_platform():
     context = ACTIVE.get()
     if context is None:
-        raise PlatformError("no active task platform; select hardware and toolchain or supply a task directory")
+        raise PlatformError(
+            "no active task platform; select hardware and toolchain or supply a task directory"
+        )
     return context
 
 
@@ -313,10 +353,19 @@ def get_adapter():
 @contextmanager
 def using_platform(context):
     token = ACTIVE.set(context)
+    previous_task = os.environ.get("TILEOPS_TASK_DIR")
+    if context.task_dir is not None:
+        os.environ["TILEOPS_TASK_DIR"] = str(context.task_dir)
     try:
         yield
     finally:
+        if context.task_dir is not None:
+            if previous_task is None:
+                os.environ.pop("TILEOPS_TASK_DIR", None)
+            else:
+                os.environ["TILEOPS_TASK_DIR"] = previous_task
         ACTIVE.reset(token)
+
 
 def knowledge_entry_applies(entry: dict) -> bool:
     """Apply explicit scope; unscoped historical entries retain their original domain."""
@@ -325,9 +374,13 @@ def knowledge_entry_applies(entry: dict) -> bool:
         return True
     hardware = entry.get("hardware_id") or entry.get("device")
     toolchain = entry.get("toolchain_id")
-    if hardware and hardware != platform.hardware["hardware_id"] and not any(
-        name.lower().endswith(hardware.lower())
-        for name in platform.hardware["device_names"]
+    if (
+        hardware
+        and hardware != platform.hardware["hardware_id"]
+        and not any(
+            name.lower().endswith(hardware.lower())
+            for name in platform.hardware["device_names"]
+        )
     ):
         return False
     if toolchain and toolchain not in {platform.toolchain["toolchain_id"], "*"}:

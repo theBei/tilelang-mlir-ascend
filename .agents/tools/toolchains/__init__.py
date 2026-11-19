@@ -11,5 +11,8 @@ TOOLCHAINS = {"npuir": NpuirToolchain, "ascend": AscendToolchain}
 
 def compatibility_profile():
     """The registered platform for tasks created before platform selection."""
-    path = Path(__file__).resolve().parents[2] / "platforms/compatibility/legacy-npuir.json"
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "platforms/compatibility/legacy-npuir.json"
+    )
     return json.loads(path.read_text(encoding="utf-8"))

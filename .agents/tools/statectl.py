@@ -724,7 +724,27 @@ def cmd_start(args) -> int:
     state["current_stage"] = n
     platform = resolve_platform(state=state)
     if n in (3, 4, 5) and platform.hardware is not None:
-        state["platform_runtime"] = platform.probe()
+        runtime = platform.probe()
+        if state.get("migration_mode") == "harness":
+            aggregate_path = task_state_path(
+                Path(ctx.op_dir).parent, state_files=(MIGRATION_STATE_FILE,)
+            )
+            if aggregate_path is not None:
+                aggregate = read_json(aggregate_path)
+                parent = resolve_platform(state=aggregate)
+                if parent.selection != platform.selection:
+                    raise PlatformError(
+                        "child platform differs from the migration aggregate"
+                    )
+                if parent.runtime is not None and parent.runtime != runtime:
+                    raise PlatformError(
+                        "active runtime differs from the migration aggregate"
+                    )
+                if parent.runtime is None:
+                    aggregate["platform_runtime"] = runtime
+                    aggregate["last_updated"] = now_iso()
+                    atomic_write_json(str(aggregate_path), aggregate)
+        state["platform_runtime"] = runtime
     ctx.write()
     budget = budget_watermark(state, ctx.op_dir, now_iso())
     ctx.timeline(
@@ -1869,8 +1889,10 @@ def cmd_migration_show(args) -> int:
 
 
 def cmd_platform(args) -> int:
-    if args.check_environment and args.toolchain and not (
-        args.hardware or args.task_dir or args.probe
+    if (
+        args.check_environment
+        and args.toolchain
+        and not (args.hardware or args.task_dir or args.probe)
     ):
         raise PlatformError(
             "--check-environment with --toolchain needs --hardware or --task-dir"

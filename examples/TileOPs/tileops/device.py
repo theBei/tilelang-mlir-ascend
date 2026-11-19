@@ -142,9 +142,18 @@ class NPUBackend(DeviceBackend):
 
     def shared_memory_budget(self, device: Optional[int] = None) -> int:
         """Read the selected model budget or the historical task compatibility query."""
-        from tileops.utils.task_platform import shared_memory_budget
+        from tileops.utils.task_platform import get_task_platform, shared_memory_budget
 
-        return shared_memory_budget(device)
+        if get_task_platform() is not None:
+            return shared_memory_budget(device)
+        from tileops.toolchains.npuir.device import shared_memory_budget as legacy_budget
+
+        return legacy_budget(device)
+
+    def profiler_adapter(self):
+        from tileops.toolchains.npuir.profiler import MsprofOp
+
+        return MsprofOp()
 
     def env_metadata(self) -> list[str]:
         lines = [

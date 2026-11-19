@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .adapter import ToolchainAdapter
 from .cann_profile import benchmark_profile_result
-from .tileops_contract import _read_text, _fail, meta_lint, integration_lint
+from .tileops_contract import _fail, meta_lint, integration_lint
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE = ROOT / ".agents/platforms/toolchains/npuir/profile.json"
@@ -129,24 +129,13 @@ class NpuirToolchain(ToolchainAdapter):
                             samples.append(float(row[DURATION_FIELD]))
         return samples
 
-    def migration_mode(self, source_repo: str, operator: str) -> str:
-        root = Path(source_repo)
-        directories = ("tileops/manifest", "tests/ops", "benchmarks/ops")
-        if not all((root / directory).is_dir() for directory in directories):
-            return "plain"
-        key = re.compile(f"^{re.escape(operator)}:", re.M)
-        manifests = (root / directories[0]).glob("*.yaml")
-        return (
-            "harness"
-            if any(key.search(_read_text(str(path)) or "") for path in manifests)
-            else "plain"
-        )
-
     def scaffold_checks(self, meta_path: str, repo_root: str):
         return meta_lint(meta_path, repo_root)
 
     def integration_checks(self, migration_state: dict, repo_root: str):
-        return integration_lint(migration_state, repo_root, integration_mode=self.integration_mode)
+        return integration_lint(
+            migration_state, repo_root, integration_mode=self.integration_mode
+        )
 
     def integration_mode(self, kernel_path):
         return read_integration_mode(Path(kernel_path))
@@ -159,11 +148,17 @@ class NpuirToolchain(ToolchainAdapter):
         commit = (
             current["tilelang_commit"]
             if "tilelang_commit" in current
-            else (re.findall(r"\b([0-9a-f]{7,40})\b", current.get("raw", "")) or [None])[0]
+            else (
+                re.findall(r"\b([0-9a-f]{7,40})\b", current.get("raw", "")) or [None]
+            )[0]
         )
         if not commits or not commit:
             return "unknown"
-        return "fresh" if any(c.startswith(commit) or commit.startswith(c) for c in commits) else "stale"
+        return (
+            "fresh"
+            if any(c.startswith(commit) or commit.startswith(c) for c in commits)
+            else "stale"
+        )
 
     def toolchain_stamp(self, repo_root: str, *, active: bool = False) -> dict:
         return detect_current_stamp(repo_root, active=active)
@@ -283,7 +278,7 @@ def _jit_decorators(tree: ast.AST):
 
 
 # ---------------------------------------------------------------------------
-# .stage_state.json schema lint (consumed by verify/repair/every mutation)
+# Toolchain version evidence for historical knowledge entries
 
 
 def detect_current_stamp(repo_root: str, *, active: bool = False) -> dict:

@@ -167,7 +167,6 @@ def test_kb_stale_check_reports_and_never_modifies():
     # advisory tool: exit 0 even with stale entries
 
 
-
 def test_stale_check_and_runner_share_saved_commit(tmp_path, monkeypatch, capsys):
     from argparse import Namespace
     from dataclasses import replace

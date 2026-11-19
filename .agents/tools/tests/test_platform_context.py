@@ -257,7 +257,10 @@ def test_simulator_execution_context_preserves_platform_selection(monkeypatch):
     context = pc.resolve_platform("ascend-950dt-9582", "ascend")
     selection = context.selection
     assert context.prompt()["execution"]["precision_command"] == [
-        sys.executable, "<kernel>", "--level", "<level>"
+        sys.executable,
+        "<kernel>",
+        "--level",
+        "<level>",
     ]
 
     monkeypatch.setenv("IS_SIMULATOR_ENV", "true")
@@ -267,21 +270,47 @@ def test_simulator_execution_context_preserves_platform_selection(monkeypatch):
     assert simulated.selection == selection
     argv = [sys.executable, "/tmp/probe code.py", "--level", "L0"]
     launched = simulated.adapter.execution_command(argv, output_dir="profiles/probe")
-    assert launched[:8] == ["cannsim", "record", "-s", "Ascend950DT", "-n", "0", "-o", "profiles/probe"]
+    assert launched[:8] == [
+        "cannsim",
+        "record",
+        "-s",
+        "Ascend950DT",
+        "-n",
+        "0",
+        "-o",
+        "profiles/probe",
+    ]
     assert shlex.split(launched[-1]) == argv
-    assert pc.resolve_platform("ascend-910b3", "npuir").adapter.execution_command(argv) == argv
+    assert (
+        pc.resolve_platform("ascend-910b3", "npuir").adapter.execution_command(argv)
+        == argv
+    )
     assert execution["mode"] == "simulator"
     assert execution["working_directory"] == "<task_dir>"
     assert execution["prototype_command"][:8] == [
-        "cannsim", "record", "-s", "Ascend950DT", "-n", "0", "-o", "<output_dir>"
+        "cannsim",
+        "record",
+        "-s",
+        "Ascend950DT",
+        "-n",
+        "0",
+        "-o",
+        "<output_dir>",
     ]
     assert shlex.split(execution["prototype_command"][-1]) == [
-        sys.executable, "<script>"
+        sys.executable,
+        "<script>",
     ]
     assert shlex.split(execution["precision_command"][-1]) == [
-        sys.executable, "<kernel>", "--level", "<level>"
+        sys.executable,
+        "<kernel>",
+        "--level",
+        "<level>",
     ]
-    assert pc.resolve_platform("ascend-910b3", "npuir").prompt()["execution"]["mode"] == "device"
+    assert (
+        pc.resolve_platform("ascend-910b3", "npuir").prompt()["execution"]["mode"]
+        == "device"
+    )
     assert pc.resolve_platform(state={}).prompt()["execution"]["mode"] == "device"
 
 
@@ -342,7 +371,6 @@ def test_native_fingerprint_change_is_stale_and_missing_stamp_is_unknown():
     assert adapter.classify_stamp("版本戳缺失", current) == "unknown"
 
 
-
 @pytest.mark.parametrize(
     ("hardware", "toolchain", "device_name"),
     [
@@ -378,13 +406,26 @@ def test_platform_cli_explicit_detected_and_saved_hardware(
 
     for args in [("--probe",), ("--hardware", hardware, "--probe")]:
         code, result = invoke("platform", *args)
-        assert code == 1 and "select a toolchain explicitly" in result["errors"][0]["message"]
+        assert (
+            code == 1
+            and "select a toolchain explicitly" in result["errors"][0]["message"]
+        )
 
     (tmp_path / ".git").mkdir()
     task = tmp_path / "examples" / "task"
     code, result = invoke(
-        "init", "--dir", str(task), "--project", "fixture", "--op", "op",
-        "--scenario", "new_op", "--toolchain", toolchain, "--probe",
+        "init",
+        "--dir",
+        str(task),
+        "--project",
+        "fixture",
+        "--op",
+        "op",
+        "--scenario",
+        "new_op",
+        "--toolchain",
+        toolchain,
+        "--probe",
     )
     assert code == 0, result
     state_path = task / ".stage_state.json"
@@ -400,7 +441,10 @@ def test_platform_cli_explicit_detected_and_saved_hardware(
     code, result = invoke(
         "platform", "--task-dir", str(task), "--toolchain", other_toolchain, "--probe"
     )
-    assert code == 1 and "differs from the task selection" in result["errors"][0]["message"]
+    assert (
+        code == 1
+        and "differs from the task selection" in result["errors"][0]["message"]
+    )
     code, result = invoke("platform", "--task-dir", str(task), "--probe")
     assert code == 1 and "active device reports" in result["errors"][0]["message"]
     assert state_path.read_bytes() == saved_bytes
@@ -408,18 +452,27 @@ def test_platform_cli_explicit_detected_and_saved_hardware(
 
 def test_registered_new_model_needs_no_workflow_branch(monkeypatch):
     import copy
+
     profiles = pc.hardware_profiles()
     model = copy.deepcopy(profiles["ascend-950dt-9582"])
     model["hardware_id"] = "future-model"
     model["device_names"] = ["FutureDevice"]
     model["capacity_bytes"]["UB"] = 327680
-    monkeypatch.setattr(pc, "hardware_profiles", lambda: {**profiles, "future-model": model})
+    monkeypatch.setattr(
+        pc, "hardware_profiles", lambda: {**profiles, "future-model": model}
+    )
     adapter = pc.TOOLCHAINS["ascend"]
     original = adapter.workflow_context
     monkeypatch.setattr(
-        adapter, "workflow_context",
-        lambda self: {**original(self),
-                      "supported_hardware": [*original(self)["supported_hardware"], "future-model"]},
+        adapter,
+        "workflow_context",
+        lambda self: {
+            **original(self),
+            "supported_hardware": [
+                *original(self)["supported_hardware"],
+                "future-model",
+            ],
+        },
     )
     selected = pc.resolve_platform("future-model", "ascend")
     assert selected.design_budget()["capacity_bytes"]["UB"] == 327680
@@ -436,11 +489,18 @@ def test_native_device_query_keeps_cli_stdout_clean(monkeypatch, capfd, query_fa
         ctypes.CDLL(None).printf(b"vendor C log\n")
         if query_fails:
             raise RuntimeError("query failed")
-        return SimpleNamespace(name="FixtureDevice", cube_core_num=32, vector_core_num=64)
+        return SimpleNamespace(
+            name="FixtureDevice", cube_core_num=32, vector_core_num=64
+        )
 
     monkeypatch.setitem(
-        sys.modules, "torch",
-        SimpleNamespace(npu=SimpleNamespace(current_device=lambda: 0, get_device_properties=properties)),
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            npu=SimpleNamespace(
+                current_device=lambda: 0, get_device_properties=properties
+            )
+        ),
     )
     monkeypatch.setitem(sys.modules, "torch_npu", SimpleNamespace())
     adapter = pc.TOOLCHAINS["ascend"]()
@@ -451,3 +511,166 @@ def test_native_device_query_keeps_cli_stdout_clean(monkeypatch, capfd, query_fa
         assert adapter.probe_device()["cores"] == {"cube": 32, "vector": 64}
     print("protocol stdout restored")
     assert capfd.readouterr().out == "protocol stdout restored\n"
+
+
+def test_catalogue_extension_does_not_invalidate_saved_task(monkeypatch):
+    context = pc.resolve_platform("ascend-910b3", "npuir")
+    saved = context.selection
+    original = type(context.adapter).workflow_context
+    monkeypatch.setattr(
+        type(context.adapter),
+        "workflow_context",
+        lambda self: {
+            **original(self),
+            "supported_hardware": original(self)["supported_hardware"]
+            + ["future-model"],
+        },
+    )
+    assert pc.resolve_platform(state=saved).selection == saved
+    monkeypatch.setattr(
+        type(context.adapter),
+        "workflow_context",
+        lambda self: {**original(self), "ruleset": "changed-rules.md"},
+    )
+    with pytest.raises(pc.PlatformError, match="configuration changed"):
+        pc.resolve_platform(state=saved)
+
+
+def test_pre_fix_tasks_keep_recorded_evidence(monkeypatch):
+    context = pc.resolve_platform("ascend-950dt-9582", "ascend")
+    saved = {
+        "hardware_id": "ascend-950dt-9582",
+        "toolchain_id": "ascend",
+        "platform_config": {
+            "hardware": next(iter(context.hardware["compatible_revisions"])),
+            "toolchain": next(iter(context.toolchain["compatible_revisions"])),
+        },
+    }
+    assert pc.resolve_platform(state=saved).selection == saved
+    changed = dict(
+        context.hardware, capacity_bytes={**context.hardware["capacity_bytes"], "UB": 1}
+    )
+    monkeypatch.setattr(
+        pc, "hardware_profiles", lambda: {changed["hardware_id"]: changed}
+    )
+    with pytest.raises(pc.PlatformError, match="configuration changed"):
+        pc.resolve_platform(state=saved)
+
+
+def test_task_context_reaches_child_and_restores_environment(tmp_path, monkeypatch):
+    import argparse
+    import os
+    import subprocess
+
+    context = pc.resolve_platform("ascend-910b3", "npuir")
+    (tmp_path / ".stage_state.json").write_text(json.dumps(context.selection))
+    selected = pc.command_platform(
+        argparse.Namespace(task_dir=str(tmp_path), hardware=None, toolchain=None)
+    )
+    monkeypatch.delenv("TILEOPS_TASK_DIR", raising=False)
+    tileops = Path(__file__).resolve().parents[3] / "examples/TileOPs"
+    monkeypatch.setenv("PYTHONPATH", str(tileops))
+    with pc.using_platform(selected):
+        result = subprocess.check_output(
+            [
+                sys.executable,
+                "-c",
+                "from tileops.utils.task_platform import get_task_platform; print(get_task_platform().hardware['hardware_id'])",
+            ],
+            cwd=tmp_path,
+            text=True,
+        )
+    assert result.strip().endswith("ascend-910b3")
+    assert "TILEOPS_TASK_DIR" not in os.environ
+
+
+@pytest.mark.parametrize("model", ["ascend-910b2c", "ascend-910b3"])
+@pytest.mark.parametrize("level", ["L0A", "L0B"])
+def test_original_operand_memory_budget_is_enforced(model, level):
+    context = pc.resolve_platform(model, "npuir")
+    checks = check_ub_budget(
+        f"## 4.5 内存\n**{level}**\n| buffer | 128KB |\n", context.design_budget()
+    )
+    assert any(check["status"] == "fail" for check in checks), checks
+
+
+def test_native_blockscaled_gemm_has_accumulator_budget():
+    from design_calc_check import check_l0c_budget
+
+    context = pc.resolve_platform("ascend-950dt-9582", "ascend")
+    design = "block_M = 512\nblock_N = 512\nT.gemm_blockscaled(A, B, C)"
+    with pc.using_platform(context):
+        checks = check_l0c_budget(design, context.design_budget())
+    assert checks["status"] == "fail", checks
+
+
+def test_first_child_pins_migration_runtime(tmp_path, monkeypatch):
+    import argparse
+    import statectl
+
+    parent = tmp_path / "op"
+    selection = pc.resolve_platform("ascend-910b3", "npuir").selection
+    parent.mkdir()
+    aggregate_path = parent / ".migration_state.json"
+    aggregate_path.write_text(json.dumps({**selection, "phase": "DEV_LOOP"}))
+    children = [parent / "f1", parent / "f2"]
+    for child in children:
+        assert (
+            sc(
+                "init",
+                "--dir",
+                str(child),
+                "--project",
+                "op",
+                "--op",
+                child.name,
+                "--scenario",
+                "migration",
+                "--migration-mode",
+                "harness",
+                "--stage-plan",
+                "3",
+                "--task-dir",
+                str(parent),
+            )[0]
+            == 0
+        )
+    runtime = {"device": {"name": "Ascend910B3"}, "toolchain_stamp": {"raw": "build-A"}}
+    monkeypatch.setattr(pc.PlatformContext, "probe", lambda self: dict(runtime))
+    assert statectl.cmd_start(argparse.Namespace(dir=str(children[0]), stage=3)) == 0
+    assert pc.read_json(aggregate_path)["platform_runtime"] == runtime
+    runtime["toolchain_stamp"] = {"raw": "build-B"}
+    with pytest.raises(pc.PlatformError, match="migration aggregate"):
+        statectl.cmd_start(argparse.Namespace(dir=str(children[1]), stage=3))
+    assert pc.read_json(children[1] / ".stage_state.json")["stage_status"] == {}
+
+
+def test_knowledge_search_uses_the_common_model_scope(monkeypatch, capsys):
+    import argparse
+    import kb_search
+
+    context = pc.resolve_platform("ascend-950dt-9582", "ascend")
+    entry = {
+        "source": "pattern-library",
+        "id": "fixture",
+        "path": "fixture.md",
+        "hardware_id": "ascend-950dt-9582",
+        "device": "ascend-950dt-9582",
+        "toolchain_id": "ascend",
+        "facets": {},
+    }
+    monkeypatch.setattr(kb_search, "build_index", lambda: [entry])
+    with pc.using_platform(context):
+        assert pc.knowledge_entry_applies(entry)
+        assert kb_search.run(argparse.Namespace(index=True, json=True)) == 0
+    assert "fixture" in capsys.readouterr().out
+
+
+def test_malformed_config_fingerprint_is_rejected():
+    context = pc.resolve_platform("ascend-910b3", "npuir")
+    saved = {
+        **context.selection,
+        "platform_config": {"hardware": [], "toolchain": "invalid"},
+    }
+    with pytest.raises(pc.PlatformError, match="configuration changed"):
+        pc.resolve_platform(state=saved)
